@@ -96,12 +96,11 @@
 
       app.ports.signOut.subscribe(function() {
         auth.signOut().then(function() {
-          // Sign-out successful.
+          app.ports.receiveUserSongs.send([])
         }).catch(function(error) {
           console.log(error.message);
         });
       })
-
 
       app.ports.addSong.subscribe(function (data) {
         var {uid, code, title, artist} = data;

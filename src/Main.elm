@@ -33,6 +33,7 @@ type alias Model =
     { query : String
     , language : Language
     , showResults : Bool
+    , authForm : Maybe AuthForm
     , results : List SongData
     , userSongs : List SongData
     , email : String
@@ -44,6 +45,11 @@ type alias Model =
 type Language
     = English
     | Spanish
+
+
+type AuthForm
+    = SignIn
+    | SignUp
 
 
 type alias SongData =
@@ -69,6 +75,7 @@ initialModel =
     { query = ""
     , language = English
     , showResults = False
+    , authForm = Nothing
     , results = []
     , userSongs = []
     , email = ""
@@ -101,12 +108,13 @@ type Msg
     | SongAdded (Result Error SongData)
     | SongRemoved String
     | StartSearch
+    | ShowAuthForm AuthForm
     | ReceiveUserSongs (Result Error (List SongData))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case Debug.log "msg" msg of
+    case msg of
         AddSong songData ->
             case model.uid of
                 Just uid ->
@@ -187,6 +195,9 @@ update msg model =
         StartSearch ->
             ( model, getJson model )
 
+        ShowAuthForm formType ->
+            ( { model | authForm = Just formType }, Cmd.none )
+
         ReceiveUserSongs result ->
             case result of
                 Ok userSongs ->
@@ -218,16 +229,13 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
-    let
-        usersongs =
-            Debug.log "user songs" model.userSongs
-    in
     layoutWith { options = layoutOptions }
         [ Background.color black
         , Font.family
             [ Font.typeface "Roboto Mono"
             , Font.monospace
             ]
+        , inFront <| authWrapper model
         ]
     <|
         column
@@ -244,7 +252,6 @@ view model =
 
               else
                 none
-            , signInForm model
             , if not <| List.isEmpty model.userSongs then
                 resultsList model.userSongs
 
@@ -257,7 +264,7 @@ layoutOptions : List Option
 layoutOptions =
     [ focusStyle
         { borderColor = Nothing
-        , backgroundColor = Just purple
+        , backgroundColor = Nothing
         , shadow = Nothing
         }
     ]
@@ -468,39 +475,68 @@ resultsListCell attributes cellText =
         |> el ([ padding 10, Font.center, Font.size 16 ] ++ attributes)
 
 
-signInForm : Model -> Element Msg
-signInForm model =
-    case model.uid of
-        Just uid ->
-            Input.button []
-                { onPress = Just SignOut
-                , label = text "Sign Out"
-                }
-
-        Nothing ->
-            column []
-                [ Input.email []
-                    { onChange = ChangeEmail
-                    , text = model.email
-                    , placeholder = Nothing
-                    , label = Input.labelAbove [] <| text "email"
-                    }
-                , Input.newPassword []
-                    { onChange = ChangePassword
-                    , text = model.password
-                    , placeholder = Nothing
-                    , show = False
-                    , label = Input.labelAbove [] <| text "password"
-                    }
-                , Input.button []
-                    { onPress = Just SignInUser
-                    , label = text "Sign In"
-                    }
-                , Input.button []
-                    { onPress = Just CreateUser
-                    , label = text "Create Account"
+authWrapper : Model -> Element Msg
+authWrapper model =
+    column [ Font.color pink, Font.size 12 ]
+        (case model.uid of
+            Just uid ->
+                [ Input.button [ padding 10 ]
+                    { onPress = Just SignOut
+                    , label = text "Sign Out"
                     }
                 ]
+
+            Nothing ->
+                [ row []
+                    [ Input.button [ padding 10 ]
+                        { onPress = Just (ShowAuthForm SignIn)
+                        , label = text "Sign In ⌄"
+                        }
+                    , Input.button [ padding 10 ]
+                        { onPress = Just (ShowAuthForm SignUp)
+                        , label = text "Sign Up ⌄"
+                        }
+                    ]
+                , case model.authForm of
+                    Just formType ->
+                        authForm formType model
+
+                    Nothing ->
+                        none
+                ]
+        )
+
+
+authForm : AuthForm -> Model -> Element Msg
+authForm formType model =
+    let
+        ( passwordField, onSubmit, labelText ) =
+            case formType of
+                SignIn ->
+                    ( Input.currentPassword, Just SignInUser, "Sign In" )
+
+                SignUp ->
+                    ( Input.newPassword, Just CreateUser, "Sign Up" )
+    in
+    column [ Background.color transparentPurple, padding 20, spacing 10 ]
+        [ Input.email []
+            { onChange = ChangeEmail
+            , text = model.email
+            , placeholder = Nothing
+            , label = Input.labelAbove [] <| text "email"
+            }
+        , passwordField []
+            { onChange = ChangePassword
+            , text = model.password
+            , placeholder = Nothing
+            , show = False
+            , label = Input.labelAbove [] <| text "password"
+            }
+        , Input.button []
+            { onPress = onSubmit
+            , label = text labelText
+            }
+        ]
 
 
 
@@ -515,6 +551,11 @@ black =
 purple : Color
 purple =
     rgb255 41 21 40
+
+
+transparentPurple : Color
+transparentPurple =
+    rgba255 41 21 40 0.8
 
 
 gray : Color
