@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>gagopa.club</title>
+    <link rel="stylesheet" herf="https://fonts.googleapis.com/css?family=Roboto+Mono">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/earlyaccess/nicomoji.css">
+    <script src="dist/elm.min.js"></script>
+  </head>
+  <body>
+    <div id="elm"></div>
+    <script src="https://www.gstatic.com/firebasejs/5.7.3/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/5.7.3/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/5.7.3/firebase-database.js"></script>
+    <script>
+      // Initialize Firebase
+      var config = {
+        apiKey: "AIzaSyDTmf9G0KRHlbCJZFK3Ih8GUvd2yd0X1Kw",
+        authDomain: "gagopa-351c5.firebaseapp.com",
+        databaseURL: "https://gagopa-351c5.firebaseio.com",
+        projectId: "gagopa-351c5",
+        storageBucket: "gagopa-351c5.appspot.com",
+        messagingSenderId: "702881318291"
+      };
+      firebase.initializeApp(config);
+    </script>
+    <script>
+      var app = Elm.Main.init({
+          node: document.getElementById('elm')
+      });
+
+      var auth = firebase.auth();
+      var database = firebase.database();
+
+      function nodeToSongData(node) {
+        var songData = node.val();
+        return ({
+          key: node.key,
+          code: songData.code,
+          title: songData.title,
+          artist: songData.artist
+        });
+      }
+
+
+      var songRemovedListener = null;
+      var songAddedListener = null;
+
+
+      auth.onAuthStateChanged(function(user) {
+        if (user) {
+          app.ports.receiveNewUid.send(user.uid)
+          var userSongsRef = database.ref('songsByUid/' + user.uid)
+          userSongsRef
+            .once('value', function(snapshot) {
+              var songs = [];
+              snapshot.forEach(function(node) {
+                var songData = node.val();
+                songs.push(nodeToSongData(node));
+                app.ports.receiveUserSongs.send(songs)
+              })
+            });
+          songRemovedListener = userSongsRef
+            .on('child_removed', function(node) {
+              app.ports.songRemoved.send(node.key);
+            });
+          songAddedListener = userSongsRef
+            .on('child_added', function(node) {
+              app.ports.songAdded.send(nodeToSongData(node));
+            });
+        } else {
+          app.ports.receiveNewUid.send(null)
+          if (songRemovedListener) songRemovedListener.off();
+          if (songAddedListener) songAddedListener.off();
+        }
+      });
+
+      app.ports.createUser.subscribe(function(data) {
+        var [email, password] = data;
+        auth
+          .createUserWithEmailAndPassword(email, password)
+          .catch(function(error) {
+            console.log(error.message);
+          });
+      })
+
+      app.ports.signInUser.subscribe(function(data) {
+        var [email, password] = data;
+        auth
+          .signInWithEmailAndPassword(email, password)
+          .catch(function(error) {
+            console.log(error.message);
+        });
+      })
+
+      app.ports.signOut.subscribe(function() {
+        auth.signOut().then(function() {
+          // Sign-out successful.
+        }).catch(function(error) {
+          console.log(error.message);
+        });
+      })
+
+
+      app.ports.addSong.subscribe(function (data) {
+        var {uid, code, title, artist} = data;
+        var user = database.ref('songsByUid/' + uid);
+        var newSongKey = user.push().key;
+        var update = {};
+        update[newSongKey] = {
+          code: code,
+          title: title,
+          artist: artist
+        };
+        user.update(update);
+      })
+
+      app.ports.removeSong.subscribe(function(data) {
+        var [ uid, key ] = data;
+          database
+          .ref('songsByUid/' + uid + '/' + key)
+          .remove();
+      })
+    </script>
+  </body>
+</html>

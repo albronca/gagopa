@@ -1,6 +1,7 @@
-module Main exposing (main)
+port module Main exposing (main)
 
 import Browser
+import Dict exposing (Dict)
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -8,7 +9,8 @@ import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
 import Http
-import Json.Decode exposing (..)
+import Json.Decode as Decode exposing (Decoder, Error, field, maybe, string)
+import Json.Encode as Encode
 import String.Extra exposing (ellipsis)
 import Url.Builder
 
@@ -32,6 +34,10 @@ type alias Model =
     , language : Language
     , showResults : Bool
     , results : List SongData
+    , userSongs : List SongData
+    , email : String
+    , password : String
+    , uid : Maybe String
     }
 
 
@@ -41,7 +47,8 @@ type Language
 
 
 type alias SongData =
-    { code : String
+    { key : Maybe String
+    , code : String
     , title : String
     , artist : String
     }
@@ -63,6 +70,10 @@ initialModel =
     , language = English
     , showResults = False
     , results = []
+    , userSongs = []
+    , email = ""
+    , password = ""
+    , uid = Nothing
     }
 
 
@@ -76,15 +87,41 @@ init _ =
 
 
 type Msg
-    = ApiResponse (Result Http.Error (List SongData))
+    = AddSong SongData
+    | ApiResponse (Result Http.Error (List SongData))
+    | ChangeEmail String
+    | ChangePassword String
+    | ReceiveUid (Maybe String)
+    | CreateUser
     | QueryChange String
+    | RemoveSong String
     | SelectLanguage Language
+    | SignInUser
+    | SignOut
+    | SongAdded (Result Error SongData)
+    | SongRemoved String
     | StartSearch
+    | ReceiveUserSongs (Result Error (List SongData))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of
+    case Debug.log "msg" msg of
+        AddSong songData ->
+            case model.uid of
+                Just uid ->
+                    ( model
+                    , addSong
+                        { code = songData.code
+                        , title = songData.title
+                        , artist = songData.artist
+                        , uid = uid
+                        }
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
         ApiResponse response ->
             case response of
                 Ok newResults ->
@@ -95,14 +132,68 @@ update msg model =
                 Err _ ->
                     ( model, Cmd.none )
 
+        ChangeEmail newEmail ->
+            ( { model | email = newEmail }, Cmd.none )
+
+        ChangePassword newPassword ->
+            ( { model | password = newPassword }, Cmd.none )
+
+        ReceiveUid newUid ->
+            ( { model | uid = newUid }, Cmd.none )
+
+        CreateUser ->
+            ( model, createUser ( model.email, model.password ) )
+
         QueryChange newQuery ->
             ( { model | query = newQuery }, Cmd.none )
+
+        RemoveSong key ->
+            case model.uid of
+                Just uid ->
+                    ( model, removeSong ( uid, key ) )
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         SelectLanguage newLanguage ->
             ( { model | language = newLanguage }, Cmd.none )
 
+        SignInUser ->
+            ( model, signInUser ( model.email, model.password ) )
+
+        SignOut ->
+            ( model, signOut () )
+
+        SongAdded result ->
+            case result of
+                Ok songData ->
+                    let
+                        userSongs =
+                            model.userSongs ++ [ songData ]
+                    in
+                    ( { model | userSongs = userSongs }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
+        SongRemoved key ->
+            let
+                userSongs =
+                    model.userSongs
+                        |> List.filter (\song -> song.key /= Just key)
+            in
+            ( { model | userSongs = userSongs }, Cmd.none )
+
         StartSearch ->
             ( model, getJson model )
+
+        ReceiveUserSongs result ->
+            case result of
+                Ok userSongs ->
+                    ( { model | userSongs = userSongs }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
 
 
 
@@ -111,7 +202,14 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    Sub.batch
+        [ receiveNewUid ReceiveUid
+        , (Decode.decodeValue songDataListDecoder >> ReceiveUserSongs)
+            |> receiveUserSongs
+        , songRemoved SongRemoved
+        , (Decode.decodeValue songDataDecoder >> SongAdded)
+            |> songAdded
+        ]
 
 
 
@@ -120,13 +218,14 @@ subscriptions model =
 
 view : Model -> Html Msg
 view model =
+    let
+        usersongs =
+            Debug.log "user songs" model.userSongs
+    in
     layoutWith { options = layoutOptions }
         [ Background.color black
         , Font.family
-            [ Font.external
-                { name = "Roboto Mono"
-                , url = "https://fonts.googleapis.com/css?family=Roboto+Mono"
-                }
+            [ Font.typeface "Roboto Mono"
             , Font.monospace
             ]
         ]
@@ -142,6 +241,12 @@ view model =
             , searchBox model
             , if model.showResults then
                 resultsList model.results
+
+              else
+                none
+            , signInForm model
+            , if not <| List.isEmpty model.userSongs then
+                resultsList model.userSongs
 
               else
                 none
@@ -163,12 +268,7 @@ header =
     text "ガゴパ"
         |> el
             [ Font.size 60
-            , Font.family
-                [ Font.external
-                    { name = "Nico Moji"
-                    , url = "https://fonts.googleapis.com/earlyaccess/nicomoji.css"
-                    }
-                ]
+            , Font.family [ Font.typeface "Nico Moji" ]
             , Font.center
             , width fill
             , padding 40
@@ -247,7 +347,7 @@ searchBox model =
     column [ width fill ]
         [ languageSelect model.language
         , row [ centerX, width <| maximum 600 <| fill ]
-            [ Input.text
+            [ Input.search
                 [ width <| fillPortion 3
                 , Background.color black
                 , Border.color pink
@@ -308,7 +408,13 @@ resultsList results =
                 , columns =
                     [ { header = resultsListHeader "Song Title"
                       , width = fill
-                      , view = .title >> resultsListCell [ Font.alignLeft ]
+                      , view =
+                            \songData ->
+                                resultsListCell
+                                    [ Font.alignLeft
+                                    , inFront <| addRemoveButton songData
+                                    ]
+                                    songData.title
                       }
                     , { header = resultsListHeader "Artist Name"
                       , width = fill
@@ -320,8 +426,23 @@ resultsList results =
                       }
                     ]
                 }
-            , el [ centerX ] <| text "1|2|3"
             ]
+
+
+addRemoveButton : SongData -> Element Msg
+addRemoveButton songData =
+    let
+        ( onPress, labelText ) =
+            case songData.key of
+                Just key ->
+                    ( Just (RemoveSong key), "-" )
+
+                Nothing ->
+                    ( Just (AddSong songData), "+" )
+    in
+    Input.button
+        [ Font.color pink ]
+        { onPress = onPress, label = text labelText }
 
 
 resultsListHeader : String -> Element Msg
@@ -345,6 +466,41 @@ resultsListCell attributes cellText =
     ellipsis 23 cellText
         |> text
         |> el ([ padding 10, Font.center, Font.size 16 ] ++ attributes)
+
+
+signInForm : Model -> Element Msg
+signInForm model =
+    case model.uid of
+        Just uid ->
+            Input.button []
+                { onPress = Just SignOut
+                , label = text "Sign Out"
+                }
+
+        Nothing ->
+            column []
+                [ Input.email []
+                    { onChange = ChangeEmail
+                    , text = model.email
+                    , placeholder = Nothing
+                    , label = Input.labelAbove [] <| text "email"
+                    }
+                , Input.newPassword []
+                    { onChange = ChangePassword
+                    , text = model.password
+                    , placeholder = Nothing
+                    , show = False
+                    , label = Input.labelAbove [] <| text "password"
+                    }
+                , Input.button []
+                    { onPress = Just SignInUser
+                    , label = text "Sign In"
+                    }
+                , Input.button []
+                    { onPress = Just CreateUser
+                    , label = text "Create Account"
+                    }
+                ]
 
 
 
@@ -377,6 +533,37 @@ pink =
 
 
 
+-- PORTS
+
+
+port signInUser : ( String, String ) -> Cmd msg
+
+
+port createUser : ( String, String ) -> Cmd msg
+
+
+port signOut : () -> Cmd msg
+
+
+port addSong : { uid : String, code : String, title : String, artist : String } -> Cmd msg
+
+
+port removeSong : ( String, String ) -> Cmd msg
+
+
+port receiveNewUid : (Maybe String -> msg) -> Sub msg
+
+
+port receiveUserSongs : (Encode.Value -> msg) -> Sub msg
+
+
+port songRemoved : (String -> msg) -> Sub msg
+
+
+port songAdded : (Encode.Value -> msg) -> Sub msg
+
+
+
 -- API
 
 
@@ -396,12 +583,13 @@ getJson model =
 
 songDataListDecoder : Decoder (List SongData)
 songDataListDecoder =
-    list songDataDecoder
+    Decode.list songDataDecoder
 
 
 songDataDecoder : Decoder SongData
 songDataDecoder =
-    map3 SongData
+    Decode.map4 SongData
+        (maybe (field "key" string))
         (field "code" string)
         (field "title" string)
         (field "artist" string)
