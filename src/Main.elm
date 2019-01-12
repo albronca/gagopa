@@ -8,6 +8,7 @@ import Element.Border as Border
 import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
+import Html.Attributes exposing (title)
 import Http
 import Json.Decode as Decode exposing (Decoder, Error, field, maybe, string)
 import Json.Encode as Encode
@@ -241,22 +242,41 @@ view model =
         column
             [ Font.color pink
             , centerX
-            , width <| maximum 600 <| fill
+            , width <| maximum 1000 <| fill
             , height fill
-            , spacing 40
+            , spacing 20
             ]
             [ header
-            , searchBox model
-            , if model.showResults then
-                resultsList model.results
+            , languageSelect model.language
+            , searchBox model.query
+            , row [ width fill, spacing 10 ]
+                [ if model.showResults then
+                    column [ alignTop, width <| fillPortion 3 ]
+                        [ el [ centerX, Font.size 12, padding 10 ] <| text "Search Results"
+                        , songList { charLimit = 30, background = black, font = pink } model.results
+                        ]
 
-              else
-                none
-            , if not <| List.isEmpty model.userSongs then
-                resultsList model.userSongs
+                  else
+                    none
+                , if not <| List.isEmpty model.userSongs then
+                    let
+                        charLimit =
+                            if not <| List.isEmpty model.results then
+                                15
 
-              else
-                none
+                            else
+                                30
+                    in
+                    column
+                        [ alignTop, width <| fillPortion 1 ]
+                        [ el [ centerX, Font.size 12, padding 10 ] <| text "Wish List"
+                        , songList { charLimit = charLimit, background = purple, font = white }
+                            model.userSongs
+                        ]
+
+                  else
+                    none
+                ]
             ]
 
 
@@ -278,131 +298,124 @@ header =
             , Font.family [ Font.typeface "Nico Moji" ]
             , Font.center
             , width fill
-            , padding 40
+            , paddingEach
+                { top = 40
+                , right = 0
+                , bottom = 0
+                , left = 0
+                }
             ]
 
 
 languageSelect : Language -> Element Msg
 languageSelect language =
-    Input.radioRow [ Font.size 16 ]
-        { onChange = SelectLanguage
-        , options = languageOptions
-        , selected = Just language
-        , label = Input.labelHidden "Language"
-        }
-
-
-languageOptions : List (Input.Option Language Msg)
-languageOptions =
-    [ languageOption
-        [ padding 10
-        , Border.widthEach
-            { top = 1
-            , right = 1
-            , bottom = 0
-            , left = 1
-            }
-        , Border.roundEach
-            { topLeft = 5
-            , topRight = 0
-            , bottomLeft = 0
-            , bottomRight = 0
-            }
-        ]
-        English
-    , languageOption
-        [ padding 10
-        , Border.widthEach
-            { top = 1
-            , right = 1
-            , bottom = 0
-            , left = 0
-            }
-        , Border.roundEach
-            { topLeft = 0
-            , topRight = 5
-            , bottomLeft = 0
-            , bottomRight = 0
-            }
-        ]
-        Spanish
-    ]
-
-
-languageOption : List (Attribute Msg) -> Language -> Input.Option Language Msg
-languageOption attributes language =
-    Input.optionWith language
-        (\optionState ->
-            case optionState of
-                Input.Idle ->
-                    el attributes <| text <| languageToString language
-
-                Input.Focused ->
-                    el (attributes ++ [ Background.color purple ]) <|
-                        text <|
-                            languageToString language
-
-                Input.Selected ->
-                    el (attributes ++ [ Background.color purple ]) <|
-                        text <|
-                            languageToString language
-        )
-
-
-searchBox : Model -> Element Msg
-searchBox model =
-    column [ width fill ]
-        [ languageSelect model.language
-        , row [ centerX, width <| maximum 600 <| fill ]
-            [ Input.search
-                [ width <| fillPortion 3
-                , Background.color black
-                , Border.color pink
-                , Border.roundEach
-                    { topLeft = 0
-                    , topRight = 0
-                    , bottomLeft = 5
-                    , bottomRight = 0
-                    }
-                ]
-                { onChange = QueryChange
-                , text = model.query
-                , placeholder = searchInputPlaceholder
-                , label = Input.labelHidden "Search"
+    row [ Font.size 16, centerX ]
+        [ Input.button
+            [ padding 10
+            , Border.width 1
+            , Border.roundEach
+                { topLeft = 5
+                , topRight = 0
+                , bottomLeft = 5
+                , bottomRight = 0
                 }
-            , Input.button
-                [ Font.center
-                , width <| fillPortion 1
-                , height fill
-                , Border.width 1
-                , Border.roundEach
-                    { topLeft = 0
-                    , topRight = 5
-                    , bottomLeft = 0
-                    , bottomRight = 5
-                    }
-                ]
-                { onPress = Just StartSearch
-                , label = text "Search"
+            , Background.color
+                (if language == English then
+                    purple
+
+                 else
+                    black
+                )
+            ]
+            { onPress = Just (SelectLanguage English)
+            , label = text "English"
+            }
+        , Input.button
+            [ padding 10
+            , Border.widthEach
+                { top = 1
+                , right = 1
+                , bottom = 1
+                , left = 0
+                }
+            , Border.roundEach
+                { topLeft = 0
+                , topRight = 5
+                , bottomLeft = 0
+                , bottomRight = 5
+                }
+            , Background.color
+                (if language == Spanish then
+                    purple
+
+                 else
+                    black
+                )
+            ]
+            { onPress = Just (SelectLanguage Spanish)
+            , label = text "Spanish"
+            }
+        ]
+
+
+searchBox : String -> Element Msg
+searchBox query =
+    row [ width <| maximum 600 <| fill, centerX ]
+        [ Input.search
+            [ width <| fillPortion 3
+            , Background.color black
+            , Border.color pink
+            , Border.roundEach
+                { topLeft = 5
+                , topRight = 0
+                , bottomLeft = 5
+                , bottomRight = 0
                 }
             ]
+            { onChange = QueryChange
+            , text = query
+            , placeholder = searchInputPlaceholder
+            , label = Input.labelHidden "Search"
+            }
+        , Input.button
+            [ Font.center
+            , width <| fillPortion 1
+            , height fill
+            , Border.width 1
+            , Border.roundEach
+                { topLeft = 0
+                , topRight = 5
+                , bottomLeft = 0
+                , bottomRight = 5
+                }
+            ]
+            { onPress = Just StartSearch
+            , label = text "Search"
+            }
         ]
 
 
 searchInputPlaceholder : Maybe (Input.Placeholder Msg)
 searchInputPlaceholder =
     text "Enter a song or artist name"
-        |> Input.placeholder [ Font.color gray ]
+        |> Input.placeholder [ Font.color gray, clip ]
         |> Just
 
 
-resultsList : List SongData -> Element Msg
-resultsList results =
+type alias SongListOptions =
+    { charLimit : Int
+    , background : Color
+    , font : Color
+    }
+
+
+songList : SongListOptions -> List SongData -> Element Msg
+songList options results =
     if List.isEmpty results then
         el [ centerX ] <| text "No results found"
 
     else
-        column [ width fill ]
+        column [ width <| maximum 600 <| fill, centerX ]
             [ Element.table
                 [ width fill
                 , Border.width 1
@@ -410,26 +423,39 @@ resultsList results =
                 , clipY
                 , scrollbarY
                 , height <| maximum 350 <| fill
+                , Background.color options.background
+                , Font.color options.font
                 ]
                 { data = results
                 , columns =
-                    [ { header = resultsListHeader "Song Title"
-                      , width = fill
+                    [ { header = songListHeader "Song Title"
+                      , width = fillPortion 3
                       , view =
                             \songData ->
-                                resultsListCell
+                                songListCell
+                                    options
                                     [ Font.alignLeft
                                     , inFront <| addRemoveButton songData
                                     ]
                                     songData.title
                       }
-                    , { header = resultsListHeader "Artist Name"
-                      , width = fill
-                      , view = .artist >> resultsListCell [ Border.widthXY 1 0, Border.dotted ]
+                    , { header = songListHeader "Artist Name"
+                      , width = fillPortion 3
+                      , view =
+                            .artist
+                                >> songListCell options
+                                    [ Border.widthXY 1 0
+                                    , Border.solid
+                                    , Font.alignLeft
+                                    ]
                       }
-                    , { header = resultsListHeader "Code"
-                      , width = fill
-                      , view = .code >> resultsListCell []
+                    , { header = songListHeader "Code"
+                      , width = fillPortion 1
+                      , view =
+                            \songData ->
+                                songListCell options
+                                    []
+                                    songData.code
                       }
                     ]
                 }
@@ -439,25 +465,35 @@ resultsList results =
 addRemoveButton : SongData -> Element Msg
 addRemoveButton songData =
     let
-        ( onPress, labelText ) =
+        ( onPress, labelText, titleText ) =
             case songData.key of
                 Just key ->
-                    ( Just (RemoveSong key), "-" )
+                    ( Just (RemoveSong key), "⊖", "Remove from wishlist" )
 
                 Nothing ->
-                    ( Just (AddSong songData), "+" )
+                    ( Just (AddSong songData), "⊕", "Add to wishlist" )
     in
     Input.button
-        [ Font.color pink ]
+        [ Font.color white
+        , paddingEach
+            { top = 0
+            , right = 20
+            , bottom = 10
+            , left = 2
+            }
+        , Font.size 14
+        , htmlAttribute <| title titleText
+        ]
         { onPress = onPress, label = text labelText }
 
 
-resultsListHeader : String -> Element Msg
-resultsListHeader headerText =
+songListHeader : String -> Element Msg
+songListHeader headerText =
     text headerText
         |> el
             [ Font.bold
             , Font.center
+            , Font.size 12
             , padding 10
             , Border.widthEach
                 { top = 0
@@ -468,11 +504,11 @@ resultsListHeader headerText =
             ]
 
 
-resultsListCell : List (Attribute Msg) -> String -> Element Msg
-resultsListCell attributes cellText =
-    ellipsis 23 cellText
+songListCell : SongListOptions -> List (Attribute Msg) -> String -> Element Msg
+songListCell { charLimit } attributes cellText =
+    ellipsis charLimit cellText
         |> text
-        |> el ([ padding 10, Font.center, Font.size 16 ] ++ attributes)
+        |> el ([ padding 10, Font.center, Font.size 12 ] ++ attributes)
 
 
 authWrapper : Model -> Element Msg
