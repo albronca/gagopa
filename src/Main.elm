@@ -7,13 +7,16 @@ import Element.Border as Border
 import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
+import Http
+import Json.Decode exposing (..)
 
 
 main : Program () Model Msg
 main =
-    Browser.sandbox
+    Browser.element
         { init = init
         , update = update
+        , subscriptions = subscriptions
         , view = view
         }
 
@@ -38,16 +41,13 @@ type alias SongData =
 initialModel : Model
 initialModel =
     { query = ""
-    , results =
-        [ { code = "234567", title = "thank u", artist = "Alanis Morisette" }
-        , { code = "123456", title = "thank u, next", artist = "Ariana Grande" }
-        ]
+    , results = []
     }
 
 
-init : Model
-init =
-    initialModel
+init : () -> ( Model, Cmd Msg )
+init _ =
+    ( initialModel, Cmd.none )
 
 
 
@@ -57,16 +57,34 @@ init =
 type Msg
     = QueryChange String
     | StartSearch
+    | ApiResponse (Result Http.Error (List SongData))
 
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         QueryChange newQuery ->
-            { model | query = newQuery }
+            ( { model | query = newQuery }, Cmd.none )
 
         StartSearch ->
-            model
+            ( model, getJson model.query )
+
+        ApiResponse response ->
+            case response of
+                Ok newResults ->
+                    ( { model | results = newResults }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
+
+
+-- SUBSCRIPTIONS
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.none
 
 
 
@@ -246,3 +264,30 @@ white =
 pink : Color
 pink =
     rgb255 158 130 156
+
+
+
+-- API
+
+
+getJson : String -> Cmd Msg
+getJson query =
+    let
+        url =
+            "http://gagopa.herokuapp.com/songs?query=" ++ query
+    in
+    Http.send ApiResponse <|
+        Http.get url songDataListDecoder
+
+
+songDataListDecoder : Decoder (List SongData)
+songDataListDecoder =
+    list songDataDecoder
+
+
+songDataDecoder : Decoder SongData
+songDataDecoder =
+    map3 SongData
+        (field "code" string)
+        (field "title" string)
+        (field "artist" string)
