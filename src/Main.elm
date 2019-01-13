@@ -274,8 +274,20 @@ update msg model =
                 wishList =
                     model.wishList
                         |> List.filter (\song -> song.key /= Just key)
+
+                showWishListModal =
+                    if List.isEmpty wishList then
+                        False
+
+                    else
+                        model.showWishListModal
             in
-            ( { model | wishList = wishList }, Cmd.none )
+            ( { model
+                | wishList = wishList
+                , showWishListModal = showWishListModal
+              }
+            , Cmd.none
+            )
 
         StartSearch ->
             ( model, getJson model )
