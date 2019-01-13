@@ -13,6 +13,7 @@
             "elm/json": "1.1.2",
             "elm/url": "1.0.0",
             "elm-community/string-extra": "4.0.0",
+            "jinjor/elm-debounce": "3.0.0",
             "mdgriffith/elm-ui": "1.1.0",
             "pablen/toasty": "1.2.0"
         },

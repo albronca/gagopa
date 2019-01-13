@@ -48,15 +48,12 @@
         });
       }
 
-
-      var songRemovedListener = null;
-      var songAddedListener = null;
-
+      var userSongsRef = null;
 
       auth.onAuthStateChanged(function(user) {
         if (user) {
           app.ports.receiveNewUid.send(user.uid)
-          var userSongsRef = database.ref('songsByUid/' + user.uid)
+          userSongsRef = database.ref('songsByUid/' + user.uid)
           userSongsRef
             .once('value', function(snapshot) {
               var songs = [];
@@ -76,8 +73,7 @@
             });
         } else {
           app.ports.receiveNewUid.send(null)
-          if (songRemovedListener) songRemovedListener.off();
-          if (songAddedListener) songAddedListener.off();
+          if (userSongsRef) userSongsRef.off();
         }
       });
 
@@ -101,7 +97,7 @@
 
       app.ports.signOut.subscribe(function() {
         auth.signOut().then(function() {
-          app.ports.receiveUserSongs.send([])
+          app.ports.receiveWishList.send([])
         }).catch(function(error) {
           app.ports.receiveError.send(error.message);
         });

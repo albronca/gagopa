@@ -2,6 +2,7 @@ port module Main exposing (main)
 
 import Browser
 import Browser.Events
+import Debounce
 import Dict exposing (Dict)
 import Element exposing (..)
 import Element.Background as Background
@@ -48,6 +49,7 @@ type alias Model =
     , uid : Maybe String
     , device : Device
     , toasties : Toasty.Stack Toast
+    , debounce : Debounce.Debounce String
     }
 
 
@@ -95,6 +97,7 @@ initialModel device =
     , uid = Nothing
     , device = device
     , toasties = Toasty.initialState
+    , debounce = Debounce.init
     }
 
 
@@ -130,6 +133,13 @@ toastyConfig =
             ]
 
 
+debounceConfig : Debounce.Config Msg
+debounceConfig =
+    { strategy = Debounce.later 500
+    , transform = DebounceMsg
+    }
+
+
 
 -- UPDATE
 
@@ -142,6 +152,7 @@ type Msg
     | CloseAuthForm
     | CloseWishListModal
     | CreateUser
+    | DebounceMsg Debounce.Msg
     | OpenWishListModal
     | QueryChange String
     | ReceiveError String
@@ -153,7 +164,6 @@ type Msg
     | SignOut
     | SongAdded (Result Error SongData)
     | SongRemoved String
-    | StartSearch
     | ShowAuthForm AuthForm
     | ToastyMsg (Toasty.Msg Toast)
     | WindowResize Int Int
@@ -208,11 +218,28 @@ update msg model =
         CreateUser ->
             ( model, createUser ( model.email, model.password ) )
 
+        DebounceMsg subMsg ->
+            let
+                ( debounce, cmd ) =
+                    Debounce.update
+                        debounceConfig
+                        (Debounce.takeLast <| apiGet model.language)
+                        subMsg
+                        model.debounce
+            in
+            ( { model | debounce = debounce }
+            , cmd
+            )
+
         OpenWishListModal ->
             ( { model | showWishListModal = True }, Cmd.none )
 
         QueryChange newQuery ->
-            ( { model | query = newQuery }, Cmd.none )
+            let
+                ( debounce, cmd ) =
+                    Debounce.push debounceConfig newQuery model.debounce
+            in
+            ( { model | query = newQuery, debounce = debounce }, cmd )
 
         ReceiveError message ->
             ( model, Cmd.none )
@@ -288,9 +315,6 @@ update msg model =
               }
             , Cmd.none
             )
-
-        StartSearch ->
-            ( model, getJson model )
 
         ShowAuthForm formType ->
             ( { model | authForm = Just formType }, Cmd.none )
@@ -501,17 +525,12 @@ searchBox model =
                 _ ->
                     ( 16, 600 )
     in
-    row [ width <| maximum maxWidth <| fill, centerX ]
-        [ Input.search
-            [ width <| fillPortion 3
+    el [ width <| maximum maxWidth <| fill, centerX ]
+        (Input.search
+            [ width fill
             , Background.color black
             , Border.color pink
-            , Border.roundEach
-                { topLeft = 5
-                , topRight = 0
-                , bottomLeft = 5
-                , bottomRight = 0
-                }
+            , Border.rounded 5
             , Font.size fontSize
             ]
             { onChange = QueryChange
@@ -519,22 +538,7 @@ searchBox model =
             , placeholder = searchInputPlaceholder
             , label = Input.labelHidden "Search"
             }
-        , Input.button
-            [ Font.center
-            , width <| fillPortion 1
-            , height fill
-            , Border.width 1
-            , Border.roundEach
-                { topLeft = 0
-                , topRight = 5
-                , bottomLeft = 0
-                , bottomRight = 5
-                }
-            ]
-            { onPress = Just StartSearch
-            , label = text "Search"
-            }
-        ]
+        )
 
 
 searchInputPlaceholder : Maybe (Input.Placeholder Msg)
@@ -678,33 +682,45 @@ authWrapper model =
                 ]
 
             Nothing ->
+                let
+                    { signInMsg, signUpMsg, signInBg, signUpBg } =
+                        case model.authForm of
+                            Just SignIn ->
+                                { signInMsg = Just CloseAuthForm
+                                , signUpMsg = Just (ShowAuthForm SignUp)
+                                , signInBg = transparentPurple
+                                , signUpBg = black
+                                }
+
+                            Just SignUp ->
+                                { signInMsg = Just (ShowAuthForm SignIn)
+                                , signUpMsg = Just CloseAuthForm
+                                , signInBg = black
+                                , signUpBg = transparentPurple
+                                }
+
+                            Nothing ->
+                                { signInMsg = Just (ShowAuthForm SignIn)
+                                , signUpMsg = Just (ShowAuthForm SignUp)
+                                , signInBg = black
+                                , signUpBg = black
+                                }
+                in
                 [ row []
                     [ Input.button []
-                        { onPress = Just (ShowAuthForm SignIn)
+                        { onPress = signInMsg
                         , label =
                             el
-                                [ Background.color
-                                    (if model.authForm == Just SignIn then
-                                        transparentPurple
-
-                                     else
-                                        black
-                                    )
+                                [ Background.color signInBg
                                 , padding 10
                                 ]
                                 (text "Sign In ⌄")
                         }
                     , Input.button []
-                        { onPress = Just (ShowAuthForm SignUp)
+                        { onPress = signUpMsg
                         , label =
                             el
-                                [ Background.color
-                                    (if model.authForm == Just SignUp then
-                                        transparentPurple
-
-                                     else
-                                        black
-                                    )
+                                [ Background.color signUpBg
                                 , padding 10
                                 ]
                                 (text "Sign Up ⌄")
@@ -896,14 +912,14 @@ port receiveError : (String -> msg) -> Sub msg
 -- API
 
 
-getJson : Model -> Cmd Msg
-getJson model =
+apiGet : Language -> String -> Cmd Msg
+apiGet language query =
     let
         url =
             Url.Builder.crossOrigin "https://gagopa.herokuapp.com"
                 [ "songs" ]
-                [ Url.Builder.string "query" model.query
-                , Url.Builder.string "language" (languageToString model.language)
+                [ Url.Builder.string "query" query
+                , Url.Builder.string "language" (languageToString language)
                 ]
     in
     Http.send ApiResponse <|
