@@ -1,6 +1,7 @@
 port module Main exposing (main)
 
 import Browser
+import Browser.Events
 import Dict exposing (Dict)
 import Element exposing (..)
 import Element.Background as Background
@@ -19,7 +20,7 @@ import Toasty.Defaults exposing (..)
 import Url.Builder
 
 
-main : Program () Model Msg
+main : Program WindowSize Model Msg
 main =
     Browser.document
         { init = init
@@ -37,13 +38,22 @@ type alias Model =
     { query : String
     , language : Language
     , showResults : Bool
+    , showWishListModal : Bool
     , authForm : Maybe AuthForm
+    , focusedInput : Maybe InputField
     , results : List SongData
-    , userSongs : List SongData
+    , wishList : List SongData
     , email : String
     , password : String
     , uid : Maybe String
+    , device : Device
     , toasties : Toasty.Stack Toast
+    }
+
+
+type alias WindowSize =
+    { width : Int
+    , height : Int
     }
 
 
@@ -57,6 +67,11 @@ type AuthForm
     | SignUp
 
 
+type InputField
+    = AuthField
+    | SearchField
+
+
 type alias SongData =
     { key : Maybe String
     , code : String
@@ -65,24 +80,31 @@ type alias SongData =
     }
 
 
-initialModel : Model
-initialModel =
+initialModel : Device -> Model
+initialModel device =
     { query = ""
     , language = English
     , showResults = False
+    , showWishListModal = False
     , authForm = Nothing
+    , focusedInput = Nothing
     , results = []
-    , userSongs = []
+    , wishList = []
     , email = ""
     , password = ""
     , uid = Nothing
+    , device = device
     , toasties = Toasty.initialState
     }
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( initialModel, Cmd.none )
+init : WindowSize -> ( Model, Cmd Msg )
+init windowSize =
+    let
+        device =
+            classifyDevice windowSize
+    in
+    ( initialModel device, Cmd.none )
 
 
 languageToString : Language -> String
@@ -118,11 +140,13 @@ type Msg
     | ChangeEmail String
     | ChangePassword String
     | CloseAuthForm
-    | ReceiveUid (Maybe String)
+    | CloseWishListModal
     | CreateUser
+    | OpenWishListModal
     | QueryChange String
     | ReceiveError String
-    | ReceiveUserSongs (Result Error (List SongData))
+    | ReceiveUid (Maybe String)
+    | ReceiveWishList (Result Error (List SongData))
     | RemoveSong String
     | SelectLanguage Language
     | SignInUser
@@ -132,6 +156,7 @@ type Msg
     | StartSearch
     | ShowAuthForm AuthForm
     | ToastyMsg (Toasty.Msg Toast)
+    | WindowResize Int Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -155,7 +180,7 @@ update msg model =
                             ToastyMsg
                             (Warning
                                 "Dammit, Janet!"
-                                "Please sign in to add songs to your wishlist."
+                                "Please sign in to add songs to your wish list."
                             )
 
         ApiResponse response ->
@@ -177,8 +202,14 @@ update msg model =
         CloseAuthForm ->
             ( { model | authForm = Nothing }, Cmd.none )
 
+        CloseWishListModal ->
+            ( { model | showWishListModal = False }, Cmd.none )
+
         CreateUser ->
             ( model, createUser ( model.email, model.password ) )
+
+        OpenWishListModal ->
+            ( { model | showWishListModal = True }, Cmd.none )
 
         QueryChange newQuery ->
             ( { model | query = newQuery }, Cmd.none )
@@ -201,10 +232,10 @@ update msg model =
                 Nothing ->
                     ( { model | uid = newUid }, Cmd.none )
 
-        ReceiveUserSongs result ->
+        ReceiveWishList result ->
             case result of
-                Ok userSongs ->
-                    ( { model | userSongs = userSongs }, Cmd.none )
+                Ok wishList ->
+                    ( { model | wishList = wishList }, Cmd.none )
 
                 Err _ ->
                     ( model, Cmd.none )
@@ -230,21 +261,21 @@ update msg model =
             case result of
                 Ok songData ->
                     let
-                        userSongs =
-                            model.userSongs ++ [ songData ]
+                        wishList =
+                            model.wishList ++ [ songData ]
                     in
-                    ( { model | userSongs = userSongs }, Cmd.none )
+                    ( { model | wishList = wishList }, Cmd.none )
 
                 Err _ ->
                     ( model, Cmd.none )
 
         SongRemoved key ->
             let
-                userSongs =
-                    model.userSongs
+                wishList =
+                    model.wishList
                         |> List.filter (\song -> song.key /= Just key)
             in
-            ( { model | userSongs = userSongs }, Cmd.none )
+            ( { model | wishList = wishList }, Cmd.none )
 
         StartSearch ->
             ( model, getJson model )
@@ -255,6 +286,13 @@ update msg model =
         ToastyMsg subMsg ->
             Toasty.update toastyConfig ToastyMsg subMsg model
 
+        WindowResize width height ->
+            let
+                windowSize =
+                    WindowSize width height
+            in
+            ( { model | device = classifyDevice windowSize }, Cmd.none )
+
 
 
 -- SUBSCRIPTIONS
@@ -263,10 +301,11 @@ update msg model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ receiveNewUid ReceiveUid
+        [ Browser.Events.onResize WindowResize
+        , receiveNewUid ReceiveUid
         , receiveError ReceiveError
-        , (Decode.decodeValue songDataListDecoder >> ReceiveUserSongs)
-            |> receiveUserSongs
+        , (Decode.decodeValue songDataListDecoder >> ReceiveWishList)
+            |> receiveWishList
         , songRemoved SongRemoved
         , (Decode.decodeValue songDataDecoder >> SongAdded)
             |> songAdded
@@ -288,6 +327,8 @@ view model =
                 , Font.monospace
                 ]
             , inFront <| authWrapper model
+            , inFront <| wishListModalButton model
+            , inFront <| wishListModal model
             ]
           <|
             column
@@ -299,17 +340,23 @@ view model =
                 ]
                 [ header
                 , languageSelect model.language
-                , searchBox model.query
+                , searchBox model
                 , row [ width fill, spacing 10 ]
                     [ if model.showResults then
                         column [ alignTop, width <| fillPortion 3 ]
                             [ el [ centerX, Font.size 12, padding 10 ] <| text "Search Results"
-                            , songList { charLimit = 30, background = black, font = pink } model.results
+                            , songList
+                                { charLimit = 30
+                                , background = black
+                                , font = pink
+                                , device = model.device
+                                }
+                                model.results
                             ]
 
                       else
                         none
-                    , if not <| List.isEmpty model.userSongs then
+                    , if showWishListByResults model then
                         let
                             charLimit =
                                 if not <| List.isEmpty model.results then
@@ -321,8 +368,14 @@ view model =
                         column
                             [ alignTop, width <| fillPortion 1 ]
                             [ el [ centerX, Font.size 12, padding 10 ] <| text "Wish List"
-                            , songList { charLimit = charLimit, background = purple, font = white }
-                                model.userSongs
+                            , songList
+                                { charLimit = charLimit
+                                , background =
+                                    purple
+                                , font = white
+                                , device = model.device
+                                }
+                                model.wishList
                             ]
 
                       else
@@ -332,6 +385,19 @@ view model =
         , Toasty.view toastyConfig Toasty.Defaults.view ToastyMsg model.toasties
         ]
     }
+
+
+showWishListByResults : Model -> Bool
+showWishListByResults model =
+    case model.device.class of
+        Phone ->
+            False
+
+        Tablet ->
+            False
+
+        _ ->
+            not <| List.isEmpty model.wishList
 
 
 layoutOptions : List Option
@@ -412,9 +478,18 @@ languageSelect language =
         ]
 
 
-searchBox : String -> Element Msg
-searchBox query =
-    row [ width <| maximum 600 <| fill, centerX ]
+searchBox : Model -> Element Msg
+searchBox model =
+    let
+        ( fontSize, maxWidth ) =
+            case model.device.class of
+                Phone ->
+                    ( 14, 350 )
+
+                _ ->
+                    ( 16, 600 )
+    in
+    row [ width <| maximum maxWidth <| fill, centerX ]
         [ Input.search
             [ width <| fillPortion 3
             , Background.color black
@@ -425,9 +500,10 @@ searchBox query =
                 , bottomLeft = 5
                 , bottomRight = 0
                 }
+            , Font.size fontSize
             ]
             { onChange = QueryChange
-            , text = query
+            , text = model.query
             , placeholder = searchInputPlaceholder
             , label = Input.labelHidden "Search"
             }
@@ -460,16 +536,29 @@ type alias SongListOptions =
     { charLimit : Int
     , background : Color
     , font : Color
+    , device : Device
     }
 
 
 songList : SongListOptions -> List SongData -> Element Msg
 songList options results =
+    let
+        ( fontSize, maxWidth, charLimit ) =
+            case options.device.class of
+                Phone ->
+                    ( 10, 350, options.charLimit // 3 * 2 )
+
+                _ ->
+                    ( 12, 600, options.charLimit )
+
+        filteredOptions =
+            { options | charLimit = charLimit }
+    in
     if List.isEmpty results then
         el [ centerX ] <| text "No results found"
 
     else
-        column [ width <| maximum 600 <| fill, centerX ]
+        column [ width <| maximum maxWidth <| fill, centerX ]
             [ Element.table
                 [ width fill
                 , Border.width 1
@@ -479,6 +568,7 @@ songList options results =
                 , height <| maximum 350 <| fill
                 , Background.color options.background
                 , Font.color options.font
+                , Font.size fontSize
                 ]
                 { data = results
                 , columns =
@@ -487,7 +577,7 @@ songList options results =
                       , view =
                             \songData ->
                                 songListCell
-                                    options
+                                    filteredOptions
                                     [ Font.alignLeft
                                     , inFront <| addRemoveButton songData
                                     ]
@@ -497,7 +587,7 @@ songList options results =
                       , width = fillPortion 3
                       , view =
                             .artist
-                                >> songListCell options
+                                >> songListCell filteredOptions
                                     [ Border.widthXY 1 0
                                     , Border.solid
                                     , Font.alignLeft
@@ -507,7 +597,7 @@ songList options results =
                       , width = fillPortion 1
                       , view =
                             \songData ->
-                                songListCell options
+                                songListCell filteredOptions
                                     []
                                     songData.code
                       }
@@ -522,10 +612,10 @@ addRemoveButton songData =
         ( onPress, labelText, titleText ) =
             case songData.key of
                 Just key ->
-                    ( Just (RemoveSong key), "⊖", "Remove from wishlist" )
+                    ( Just (RemoveSong key), "⊖", "Remove from wish list" )
 
                 Nothing ->
-                    ( Just (AddSong songData), "⊕", "Add to wishlist" )
+                    ( Just (AddSong songData), "⊕", "Add to wish list" )
     in
     Input.button
         [ Font.color white
@@ -547,7 +637,6 @@ songListHeader headerText =
         |> el
             [ Font.bold
             , Font.center
-            , Font.size 12
             , padding 10
             , Border.widthEach
                 { top = 0
@@ -562,7 +651,7 @@ songListCell : SongListOptions -> List (Attribute Msg) -> String -> Element Msg
 songListCell { charLimit } attributes cellText =
     ellipsis charLimit cellText
         |> text
-        |> el ([ padding 10, Font.center, Font.size 12 ] ++ attributes)
+        |> el ([ padding 10, Font.center ] ++ attributes)
 
 
 authWrapper : Model -> Element Msg
@@ -651,6 +740,78 @@ authForm formType model =
         ]
 
 
+wishListModalButton : Model -> Element Msg
+wishListModalButton model =
+    case model.device.class of
+        Desktop ->
+            none
+
+        BigDesktop ->
+            none
+
+        _ ->
+            if model.uid == Nothing || List.isEmpty model.wishList then
+                none
+
+            else
+                Input.button [ Font.color pink, Font.size 12, padding 10, alignRight ]
+                    { onPress = Just OpenWishListModal
+                    , label =
+                        row [ spacing 10 ]
+                            [ text "Wish List"
+                            , wishListCountBadge model.wishList
+                            ]
+                    }
+
+
+wishListCountBadge : List SongData -> Element Msg
+wishListCountBadge wishList =
+    el
+        [ Background.color purple
+        , Font.center
+        , Border.rounded 10
+        , Font.color white
+        , Border.width 1
+        , padding 2
+        ]
+        (text <| String.fromInt (List.length wishList))
+
+
+wishListModal : Model -> Element Msg
+wishListModal model =
+    if model.showWishListModal then
+        column
+            [ width fill
+            , height fill
+            , Background.color transparentPurple
+            ]
+            [ Input.button [ centerY, alignRight ]
+                { onPress = Just CloseWishListModal
+                , label =
+                    el
+                        [ rotate <| degrees 45
+                        , Font.color white
+                        , Font.size 26
+                        , padding 30
+                        ]
+                    <|
+                        text "+"
+                }
+            , el [ centerX, centerY ]
+                (songList
+                    { charLimit = 30
+                    , background = purple
+                    , font = white
+                    , device = model.device
+                    }
+                    model.wishList
+                )
+            ]
+
+    else
+        none
+
+
 
 -- COLORS
 
@@ -707,7 +868,7 @@ port removeSong : ( String, String ) -> Cmd msg
 port receiveNewUid : (Maybe String -> msg) -> Sub msg
 
 
-port receiveUserSongs : (Encode.Value -> msg) -> Sub msg
+port receiveWishList : (Encode.Value -> msg) -> Sub msg
 
 
 port songRemoved : (String -> msg) -> Sub msg
