@@ -5,20 +5,23 @@ import Dict exposing (Dict)
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
+import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
-import Html.Attributes exposing (title)
+import Html.Attributes exposing (style, title)
 import Http
 import Json.Decode as Decode exposing (Decoder, Error, field, maybe, string)
 import Json.Encode as Encode
 import String.Extra exposing (ellipsis)
+import Toasty
+import Toasty.Defaults exposing (..)
 import Url.Builder
 
 
 main : Program () Model Msg
 main =
-    Browser.element
+    Browser.document
         { init = init
         , update = update
         , subscriptions = subscriptions
@@ -40,6 +43,7 @@ type alias Model =
     , email : String
     , password : String
     , uid : Maybe String
+    , toasties : Toasty.Stack Toast
     }
 
 
@@ -61,16 +65,6 @@ type alias SongData =
     }
 
 
-languageToString : Language -> String
-languageToString language =
-    case language of
-        English ->
-            "English"
-
-        Spanish ->
-            "Spanish"
-
-
 initialModel : Model
 initialModel =
     { query = ""
@@ -82,12 +76,36 @@ initialModel =
     , email = ""
     , password = ""
     , uid = Nothing
+    , toasties = Toasty.initialState
     }
 
 
 init : () -> ( Model, Cmd Msg )
 init _ =
     ( initialModel, Cmd.none )
+
+
+languageToString : Language -> String
+languageToString language =
+    case language of
+        English ->
+            "English"
+
+        Spanish ->
+            "Spanish"
+
+
+toastyConfig : Toasty.Config Msg
+toastyConfig =
+    config
+        |> Toasty.containerAttrs
+            [ style "max-width" "300px"
+            , style "position" "fixed"
+            , style "right" "0"
+            , style "top" "0"
+            , style "font-family" "Roboto Mono"
+            , style "list-style" "none"
+            ]
 
 
 
@@ -99,9 +117,12 @@ type Msg
     | ApiResponse (Result Http.Error (List SongData))
     | ChangeEmail String
     | ChangePassword String
+    | CloseAuthForm
     | ReceiveUid (Maybe String)
     | CreateUser
     | QueryChange String
+    | ReceiveError String
+    | ReceiveUserSongs (Result Error (List SongData))
     | RemoveSong String
     | SelectLanguage Language
     | SignInUser
@@ -110,7 +131,7 @@ type Msg
     | SongRemoved String
     | StartSearch
     | ShowAuthForm AuthForm
-    | ReceiveUserSongs (Result Error (List SongData))
+    | ToastyMsg (Toasty.Msg Toast)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -130,6 +151,12 @@ update msg model =
 
                 Nothing ->
                     ( model, Cmd.none )
+                        |> Toasty.addToast toastyConfig
+                            ToastyMsg
+                            (Warning
+                                "Dammit, Janet!"
+                                "Please sign in to add songs to your wishlist."
+                            )
 
         ApiResponse response ->
             case response of
@@ -147,14 +174,40 @@ update msg model =
         ChangePassword newPassword ->
             ( { model | password = newPassword }, Cmd.none )
 
-        ReceiveUid newUid ->
-            ( { model | uid = newUid }, Cmd.none )
+        CloseAuthForm ->
+            ( { model | authForm = Nothing }, Cmd.none )
 
         CreateUser ->
             ( model, createUser ( model.email, model.password ) )
 
         QueryChange newQuery ->
             ( { model | query = newQuery }, Cmd.none )
+
+        ReceiveError message ->
+            ( model, Cmd.none )
+                |> Toasty.addToast toastyConfig ToastyMsg (Error "Bismillah NO!" message)
+
+        ReceiveUid newUid ->
+            case newUid of
+                Just _ ->
+                    ( { model | uid = newUid, email = "", password = "" }, Cmd.none )
+                        |> Toasty.addToast toastyConfig
+                            ToastyMsg
+                            (Success
+                                "Heathcliff, it's me, I'm Cathy!"
+                                "You've successfully signed in."
+                            )
+
+                Nothing ->
+                    ( { model | uid = newUid }, Cmd.none )
+
+        ReceiveUserSongs result ->
+            case result of
+                Ok userSongs ->
+                    ( { model | userSongs = userSongs }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
 
         RemoveSong key ->
             case model.uid of
@@ -199,13 +252,8 @@ update msg model =
         ShowAuthForm formType ->
             ( { model | authForm = Just formType }, Cmd.none )
 
-        ReceiveUserSongs result ->
-            case result of
-                Ok userSongs ->
-                    ( { model | userSongs = userSongs }, Cmd.none )
-
-                Err _ ->
-                    ( model, Cmd.none )
+        ToastyMsg subMsg ->
+            Toasty.update toastyConfig ToastyMsg subMsg model
 
 
 
@@ -216,6 +264,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ receiveNewUid ReceiveUid
+        , receiveError ReceiveError
         , (Decode.decodeValue songDataListDecoder >> ReceiveUserSongs)
             |> receiveUserSongs
         , songRemoved SongRemoved
@@ -228,56 +277,61 @@ subscriptions model =
 -- VIEW
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
-    layoutWith { options = layoutOptions }
-        [ Background.color black
-        , Font.family
-            [ Font.typeface "Roboto Mono"
-            , Font.monospace
-            ]
-        , inFront <| authWrapper model
-        ]
-    <|
-        column
-            [ Font.color pink
-            , centerX
-            , width <| maximum 1000 <| fill
-            , height fill
-            , spacing 20
-            ]
-            [ header
-            , languageSelect model.language
-            , searchBox model.query
-            , row [ width fill, spacing 10 ]
-                [ if model.showResults then
-                    column [ alignTop, width <| fillPortion 3 ]
-                        [ el [ centerX, Font.size 12, padding 10 ] <| text "Search Results"
-                        , songList { charLimit = 30, background = black, font = pink } model.results
-                        ]
-
-                  else
-                    none
-                , if not <| List.isEmpty model.userSongs then
-                    let
-                        charLimit =
-                            if not <| List.isEmpty model.results then
-                                15
-
-                            else
-                                30
-                    in
-                    column
-                        [ alignTop, width <| fillPortion 1 ]
-                        [ el [ centerX, Font.size 12, padding 10 ] <| text "Wish List"
-                        , songList { charLimit = charLimit, background = purple, font = white }
-                            model.userSongs
-                        ]
-
-                  else
-                    none
+    { title = "gagopa.club"
+    , body =
+        [ layoutWith { options = layoutOptions }
+            [ Background.color black
+            , Font.family
+                [ Font.typeface "Roboto Mono"
+                , Font.monospace
                 ]
+            , inFront <| authWrapper model
             ]
+          <|
+            column
+                [ Font.color pink
+                , centerX
+                , width <| maximum 1000 <| fill
+                , height fill
+                , spacing 20
+                ]
+                [ header
+                , languageSelect model.language
+                , searchBox model.query
+                , row [ width fill, spacing 10 ]
+                    [ if model.showResults then
+                        column [ alignTop, width <| fillPortion 3 ]
+                            [ el [ centerX, Font.size 12, padding 10 ] <| text "Search Results"
+                            , songList { charLimit = 30, background = black, font = pink } model.results
+                            ]
+
+                      else
+                        none
+                    , if not <| List.isEmpty model.userSongs then
+                        let
+                            charLimit =
+                                if not <| List.isEmpty model.results then
+                                    15
+
+                                else
+                                    30
+                        in
+                        column
+                            [ alignTop, width <| fillPortion 1 ]
+                            [ el [ centerX, Font.size 12, padding 10 ] <| text "Wish List"
+                            , songList { charLimit = charLimit, background = purple, font = white }
+                                model.userSongs
+                            ]
+
+                      else
+                        none
+                    ]
+                ]
+        , Toasty.view toastyConfig Toasty.Defaults.view ToastyMsg model.toasties
+        ]
+    }
 
 
 layoutOptions : List Option
@@ -513,7 +567,7 @@ songListCell { charLimit } attributes cellText =
 
 authWrapper : Model -> Element Msg
 authWrapper model =
-    column [ Font.color pink, Font.size 12 ]
+    column [ Font.color pink, Font.size 12, Events.onMouseLeave CloseAuthForm ]
         (case model.uid of
             Just uid ->
                 [ Input.button [ padding 10 ]
@@ -524,13 +578,35 @@ authWrapper model =
 
             Nothing ->
                 [ row []
-                    [ Input.button [ padding 10 ]
+                    [ Input.button []
                         { onPress = Just (ShowAuthForm SignIn)
-                        , label = text "Sign In ⌄"
+                        , label =
+                            el
+                                [ Background.color
+                                    (if model.authForm == Just SignIn then
+                                        transparentPurple
+
+                                     else
+                                        black
+                                    )
+                                , padding 10
+                                ]
+                                (text "Sign In ⌄")
                         }
-                    , Input.button [ padding 10 ]
+                    , Input.button []
                         { onPress = Just (ShowAuthForm SignUp)
-                        , label = text "Sign Up ⌄"
+                        , label =
+                            el
+                                [ Background.color
+                                    (if model.authForm == Just SignUp then
+                                        transparentPurple
+
+                                     else
+                                        black
+                                    )
+                                , padding 10
+                                ]
+                                (text "Sign Up ⌄")
                         }
                     ]
                 , case model.authForm of
@@ -555,13 +631,13 @@ authForm formType model =
                     ( Input.newPassword, Just CreateUser, "Sign Up" )
     in
     column [ Background.color transparentPurple, padding 20, spacing 10 ]
-        [ Input.email []
+        [ Input.email [ Background.color purple ]
             { onChange = ChangeEmail
             , text = model.email
             , placeholder = Nothing
             , label = Input.labelAbove [] <| text "email"
             }
-        , passwordField []
+        , passwordField [ Background.color transparentPurple ]
             { onChange = ChangePassword
             , text = model.password
             , placeholder = Nothing
@@ -638,6 +714,9 @@ port songRemoved : (String -> msg) -> Sub msg
 
 
 port songAdded : (Encode.Value -> msg) -> Sub msg
+
+
+port receiveError : (String -> msg) -> Sub msg
 
 
 
