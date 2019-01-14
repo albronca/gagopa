@@ -55,15 +55,6 @@
         if (user) {
           app.ports.receiveNewUid.send(user.uid)
           userSongsRef = database.ref('songsByUid/' + user.uid)
-          userSongsRef
-            .once('value', function(snapshot) {
-              var songs = [];
-              snapshot.forEach(function(node) {
-                var songData = node.val();
-                songs.push(nodeToSongData(node));
-                app.ports.receiveWishList.send(songs)
-              })
-            });
           songRemovedListener = userSongsRef
             .on('child_removed', function(node) {
               app.ports.songRemoved.send(node.key);
@@ -97,11 +88,10 @@
       })
 
       app.ports.signOut.subscribe(function() {
-        auth.signOut().then(function() {
-          app.ports.receiveWishList.send([])
-        }).catch(function(error) {
-          app.ports.receiveError.send(error.message);
-        });
+        auth.signOut()
+          .catch(function(error) {
+            app.ports.receiveError.send(error.message);
+          });
       })
 
       app.ports.addSong.subscribe(function (data) {

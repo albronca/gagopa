@@ -144,7 +144,6 @@ type Msg
     | QueryChange String
     | ReceiveError String
     | ReceiveUid (Maybe String)
-    | ReceiveWishList (Result Decode.Error (List SongData))
     | RemoveSong String
     | SelectLanguage Language
     | SignInUser
@@ -170,6 +169,12 @@ update msg model =
                         , uid = uid
                         }
                     )
+                        |> Toasty.addToast toastyConfig
+                            ToastyMsg
+                            (Toasty.Defaults.Success
+                                "Work, work, work, work, work"
+                                "Song added to wish list"
+                            )
 
                 Nothing ->
                     ( model, Cmd.none )
@@ -247,20 +252,18 @@ update msg model =
                             )
 
                 Nothing ->
-                    ( { model | uid = newUid }, Cmd.none )
-
-        ReceiveWishList result ->
-            case result of
-                Ok wishList ->
-                    ( { model | wishList = wishList }, Cmd.none )
-
-                Err _ ->
-                    ( model, Cmd.none )
+                    ( { model | uid = newUid, wishList = [] }, Cmd.none )
 
         RemoveSong key ->
             case model.uid of
                 Just uid ->
                     ( model, removeSong ( uid, key ) )
+                        |> Toasty.addToast toastyConfig
+                            ToastyMsg
+                            (Toasty.Defaults.Success
+                                "Where is the love?"
+                                "Song removed from wish list"
+                            )
 
                 Nothing ->
                     ( model, Cmd.none )
@@ -330,8 +333,6 @@ subscriptions model =
         [ Browser.Events.onResize WindowResize
         , receiveNewUid ReceiveUid
         , receiveError ReceiveError
-        , (Decode.decodeValue songDataListDecoder >> ReceiveWishList)
-            |> receiveWishList
         , songRemoved SongRemoved
         , (Decode.decodeValue songDataDecoder >> SongAdded)
             |> songAdded
@@ -884,9 +885,6 @@ port removeSong : ( String, String ) -> Cmd msg
 
 
 port receiveNewUid : (Maybe String -> msg) -> Sub msg
-
-
-port receiveWishList : (Decode.Value -> msg) -> Sub msg
 
 
 port songRemoved : (String -> msg) -> Sub msg
