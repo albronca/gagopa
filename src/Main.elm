@@ -3,7 +3,6 @@ port module Main exposing (main)
 import Browser
 import Browser.Events
 import Debounce
-import Dict exposing (Dict)
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -13,11 +12,10 @@ import Element.Input as Input
 import Html exposing (Html)
 import Html.Attributes exposing (style, title)
 import Http
-import Json.Decode as Decode exposing (Decoder, Error, field, maybe, string)
-import Json.Encode as Encode
+import Json.Decode as Decode exposing (Decoder, field, maybe, string)
 import String.Extra exposing (ellipsis)
 import Toasty
-import Toasty.Defaults exposing (..)
+import Toasty.Defaults
 import Url.Builder
 
 
@@ -36,20 +34,19 @@ main =
 
 
 type alias Model =
-    { query : String
+    { authForm : Maybe AuthForm
+    , debounce : Debounce.Debounce String
+    , device : Device
+    , email : String
     , language : Language
+    , password : String
+    , query : String
+    , results : List SongData
     , showResults : Bool
     , showWishListModal : Bool
-    , authForm : Maybe AuthForm
-    , focusedInput : Maybe InputField
-    , results : List SongData
-    , wishList : List SongData
-    , email : String
-    , password : String
+    , toasties : Toasty.Stack Toasty.Defaults.Toast
     , uid : Maybe String
-    , device : Device
-    , toasties : Toasty.Stack Toast
-    , debounce : Debounce.Debounce String
+    , wishList : List SongData
     }
 
 
@@ -65,13 +62,8 @@ type Language
 
 
 type AuthForm
-    = SignIn
-    | SignUp
-
-
-type InputField
-    = AuthField
-    | SearchField
+    = SignInForm
+    | SignUpForm
 
 
 type alias SongData =
@@ -84,30 +76,25 @@ type alias SongData =
 
 initialModel : Device -> Model
 initialModel device =
-    { query = ""
+    { authForm = Nothing
+    , debounce = Debounce.init
+    , device = device
+    , email = ""
     , language = English
+    , password = ""
+    , query = ""
+    , results = []
     , showResults = False
     , showWishListModal = False
-    , authForm = Nothing
-    , focusedInput = Nothing
-    , results = []
-    , wishList = []
-    , email = ""
-    , password = ""
-    , uid = Nothing
-    , device = device
     , toasties = Toasty.initialState
-    , debounce = Debounce.init
+    , uid = Nothing
+    , wishList = []
     }
 
 
 init : WindowSize -> ( Model, Cmd Msg )
 init windowSize =
-    let
-        device =
-            classifyDevice windowSize
-    in
-    ( initialModel device, Cmd.none )
+    ( initialModel <| classifyDevice windowSize, Cmd.none )
 
 
 languageToString : Language -> String
@@ -122,7 +109,7 @@ languageToString language =
 
 toastyConfig : Toasty.Config Msg
 toastyConfig =
-    config
+    Toasty.Defaults.config
         |> Toasty.containerAttrs
             [ style "max-width" "300px"
             , style "position" "fixed"
@@ -157,15 +144,15 @@ type Msg
     | QueryChange String
     | ReceiveError String
     | ReceiveUid (Maybe String)
-    | ReceiveWishList (Result Error (List SongData))
+    | ReceiveWishList (Result Decode.Error (List SongData))
     | RemoveSong String
     | SelectLanguage Language
     | SignInUser
     | SignOut
-    | SongAdded (Result Error SongData)
+    | SongAdded (Result Decode.Error SongData)
     | SongRemoved String
     | ShowAuthForm AuthForm
-    | ToastyMsg (Toasty.Msg Toast)
+    | ToastyMsg (Toasty.Msg Toasty.Defaults.Toast)
     | WindowResize Int Int
 
 
@@ -188,7 +175,7 @@ update msg model =
                     ( model, Cmd.none )
                         |> Toasty.addToast toastyConfig
                             ToastyMsg
-                            (Warning
+                            (Toasty.Defaults.Warning
                                 "Dammit, Janet!"
                                 "Please sign in to add songs to your wish list."
                             )
@@ -243,7 +230,10 @@ update msg model =
 
         ReceiveError message ->
             ( model, Cmd.none )
-                |> Toasty.addToast toastyConfig ToastyMsg (Error "Bismillah NO!" message)
+                |> Toasty.addToast
+                    toastyConfig
+                    ToastyMsg
+                    (Toasty.Defaults.Error "Bismillah NO!" message)
 
         ReceiveUid newUid ->
             case newUid of
@@ -251,7 +241,7 @@ update msg model =
                     ( { model | uid = newUid, email = "", password = "" }, Cmd.none )
                         |> Toasty.addToast toastyConfig
                             ToastyMsg
-                            (Success
+                            (Toasty.Defaults.Success
                                 "Heathcliff, it's me, I'm Cathy!"
                                 "You've successfully signed in."
                             )
@@ -685,23 +675,23 @@ authWrapper model =
                 let
                     { signInMsg, signUpMsg, signInBg, signUpBg } =
                         case model.authForm of
-                            Just SignIn ->
+                            Just SignInForm ->
                                 { signInMsg = Just CloseAuthForm
-                                , signUpMsg = Just (ShowAuthForm SignUp)
+                                , signUpMsg = Just (ShowAuthForm SignUpForm)
                                 , signInBg = transparentPurple
                                 , signUpBg = black
                                 }
 
-                            Just SignUp ->
-                                { signInMsg = Just (ShowAuthForm SignIn)
+                            Just SignUpForm ->
+                                { signInMsg = Just (ShowAuthForm SignInForm)
                                 , signUpMsg = Just CloseAuthForm
                                 , signInBg = black
                                 , signUpBg = transparentPurple
                                 }
 
                             Nothing ->
-                                { signInMsg = Just (ShowAuthForm SignIn)
-                                , signUpMsg = Just (ShowAuthForm SignUp)
+                                { signInMsg = Just (ShowAuthForm SignInForm)
+                                , signUpMsg = Just (ShowAuthForm SignUpForm)
                                 , signInBg = black
                                 , signUpBg = black
                                 }
@@ -741,10 +731,10 @@ authForm formType model =
     let
         ( passwordField, onSubmit, labelText ) =
             case formType of
-                SignIn ->
+                SignInForm ->
                     ( Input.currentPassword, Just SignInUser, "Sign In" )
 
-                SignUp ->
+                SignUpForm ->
                     ( Input.newPassword, Just CreateUser, "Sign Up" )
     in
     column [ Background.color transparentPurple, padding 20, spacing 10 ]
@@ -896,13 +886,13 @@ port removeSong : ( String, String ) -> Cmd msg
 port receiveNewUid : (Maybe String -> msg) -> Sub msg
 
 
-port receiveWishList : (Encode.Value -> msg) -> Sub msg
+port receiveWishList : (Decode.Value -> msg) -> Sub msg
 
 
 port songRemoved : (String -> msg) -> Sub msg
 
 
-port songAdded : (Encode.Value -> msg) -> Sub msg
+port songAdded : (Decode.Value -> msg) -> Sub msg
 
 
 port receiveError : (String -> msg) -> Sub msg
