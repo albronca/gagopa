@@ -508,13 +508,13 @@ languageSelect language =
 searchBox : Model -> Element Msg
 searchBox model =
     let
-        ( fontSize, maxWidth ) =
+        maxWidth =
             case model.device.class of
                 Phone ->
-                    ( 14, 350 )
+                    350
 
                 _ ->
-                    ( 16, 600 )
+                    600
     in
     el [ width <| maximum maxWidth <| fill, centerX ]
         (Input.search
@@ -522,7 +522,7 @@ searchBox model =
             , Background.color black
             , Border.color pink
             , Border.rounded 5
-            , Font.size fontSize
+            , Font.size 16
             ]
             { onChange = QueryChange
             , text = model.query
@@ -738,7 +738,12 @@ authForm formType model =
                 SignUpForm ->
                     ( Input.newPassword, Just CreateUser, "Sign Up" )
     in
-    column [ Background.color transparentPurple, padding 20, spacing 10 ]
+    column
+        [ Background.color transparentPurple
+        , padding 20
+        , spacing 10
+        , Font.size 16
+        ]
         [ Input.email [ Background.color purple ]
             { onChange = ChangeEmail
             , text = model.email
