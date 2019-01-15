@@ -1,6 +1,7 @@
 module Song exposing (Song, decoder, listDecoder)
 
 import Json.Decode as Decode exposing (Decoder, field, list, maybe, string)
+import String.Extra exposing (ellipsis, toTitleCase)
 
 
 type alias Song =
@@ -18,8 +19,22 @@ decoder =
         (field "code" string)
         (maybe (field "key" string))
         (field "title" string)
+        |> Decode.map titleCaseRelevantFields
 
 
 listDecoder : Decoder (List Song)
 listDecoder =
     list decoder
+
+
+titleCaseRelevantFields : Song -> Song
+titleCaseRelevantFields song =
+    { song
+        | artist = song.artist |> titleCase
+        , title = song.title |> titleCase
+    }
+
+
+titleCase : String -> String
+titleCase =
+    String.toLower >> toTitleCase

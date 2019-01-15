@@ -14,7 +14,7 @@ import Html.Attributes exposing (style, title)
 import Http
 import Json.Decode as Decode
 import Song exposing (Song)
-import String.Extra exposing (ellipsis)
+import String.Extra exposing (ellipsis, toTitleCase)
 import Toasty
 import Toasty.Defaults
 import Url.Builder
@@ -181,7 +181,11 @@ update msg model =
         ApiResponse response ->
             case response of
                 Ok newResults ->
-                    ( { model | showResults = True, results = newResults }
+                    ( { model
+                        | results = newResults
+                        , showResults =
+                            not (String.isEmpty model.query)
+                      }
                     , Cmd.none
                     )
 
@@ -340,75 +344,71 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "gagopa.club"
     , body =
-        [ layoutWith { options = layoutOptions }
-            [ Background.color black
-            , Font.family
-                [ Font.typeface "Roboto Mono"
-                , Font.monospace
-                ]
-            , inFront <| authWrapper model
-            , inFront <| wishListModalButton model
-            , inFront <| wishListModal model
-            ]
-          <|
-            column
-                [ Font.color pink
-                , centerX
-                , width <| maximum 1000 <| fill
-                , height fill
-                , spacing 20
-                ]
-                [ header
-                , languageSelect model.language
-                , searchBox model
-                , row [ width fill, spacing 10 ]
-                    [ if model.showResults then
-                        column [ alignTop, width <| fillPortion 3 ]
-                            [ el [ centerX, Font.size 12, padding 10 ] <| text "Search Results"
-                            , songList
-                                { charLimit = 30
-                                , background = black
-                                , font = pink
-                                , device = model.device
-                                }
-                                model.results
-                            ]
-
-                      else
-                        none
-                    , if showWishListByResults model then
-                        let
-                            charLimit =
-                                if not <| List.isEmpty model.results then
-                                    15
-
-                                else
-                                    30
-                        in
-                        column
-                            [ alignTop, width <| fillPortion 1 ]
-                            [ el [ centerX, Font.size 12, padding 10 ] <| text "Wish List"
-                            , songList
-                                { charLimit = charLimit
-                                , background =
-                                    purple
-                                , font = white
-                                , device = model.device
-                                }
-                                model.wishList
-                            ]
-
-                      else
-                        none
+        [ mainLayout model
+            |> layoutWith
+                { options = layoutOptions }
+                [ Background.color black
+                , Font.color pink
+                , Font.size 16
+                , Font.family
+                    [ Font.typeface "Roboto Mono"
+                    , Font.monospace
                     ]
                 ]
-        , Toasty.view toastyConfig Toasty.Defaults.view ToastyMsg model.toasties
+        , Toasty.view
+            toastyConfig
+            Toasty.Defaults.view
+            ToastyMsg
+            model.toasties
         ]
     }
 
 
-showWishListByResults : Model -> Bool
-showWishListByResults model =
+mainLayout : Model -> Element Msg
+mainLayout model =
+    column
+        [ inFront <| authWrapper model
+        , inFront <| wishListModalButton model
+        , inFront <| wishListModal model
+        , width fill
+        , height fill
+        , centerX
+        , spacing 20
+        ]
+        [ header
+        , languageSelect model.language
+        , column [ mainWidth model.device, centerX, spacing 10 ]
+            [ searchBox model
+            , row [ width fill ]
+                [ searchResults model
+                , wishListPanel model
+                ]
+            ]
+        ]
+
+
+mainWidth : Device -> Attribute Msg
+mainWidth device =
+    let
+        pixelWidth =
+            case device.class of
+                Phone ->
+                    350
+
+                Tablet ->
+                    600
+
+                Desktop ->
+                    800
+
+                BigDesktop ->
+                    800
+    in
+    pixelWidth |> px |> width
+
+
+showWishListPanel : Model -> Bool
+showWishListPanel model =
     case model.device.class of
         Phone ->
             False
@@ -500,16 +500,7 @@ languageSelect language =
 
 searchBox : Model -> Element Msg
 searchBox model =
-    let
-        maxWidth =
-            case model.device.class of
-                Phone ->
-                    350
-
-                _ ->
-                    600
-    in
-    el [ width <| maximum maxWidth <| fill, centerX ]
+    el [ width fill ]
         (Input.search
             [ width fill
             , Background.color black
@@ -540,118 +531,87 @@ type alias SongListOptions =
     }
 
 
-songList : SongListOptions -> List Song -> Element Msg
-songList options results =
+searchResults : Model -> Element Msg
+searchResults model =
     let
-        ( fontSize, maxWidth, charLimit ) =
-            case options.device.class of
-                Phone ->
-                    ( 10, 350, options.charLimit // 3 * 2 )
+        listWidth =
+            if model.device.class /= Phone then
+                case model.wishList of
+                    [] ->
+                        px 800
 
-                _ ->
-                    ( 12, 600, options.charLimit )
+                    _ ->
+                        px 400
 
-        filteredOptions =
-            { options | charLimit = charLimit }
+            else
+                fill
     in
-    if List.isEmpty results then
-        el [ centerX ] <| text "No results found"
+    if model.showResults then
+        case model.results of
+            [] ->
+                el [ centerX, padding 20 ] <| text "No results found"
+
+            _ ->
+                column [ width listWidth, centerX ]
+                    [ el [ centerX, padding 10 ] (text "Results")
+                    , songList model.device.class model.results
+                    ]
 
     else
-        column [ width <| maximum maxWidth <| fill, centerX ]
-            [ Element.table
-                [ width fill
-                , Border.width 1
-                , Border.rounded 5
-                , clipY
-                , scrollbarY
-                , height <| maximum 350 <| fill
-                , Background.color options.background
-                , Font.color options.font
-                , Font.size fontSize
-                ]
-                { data = results
-                , columns =
-                    [ { header = songListHeader "Song Title"
-                      , width = fillPortion 3
-                      , view =
-                            \songData ->
-                                songListCell
-                                    filteredOptions
-                                    [ Font.alignLeft
-                                    , inFront <| addRemoveButton songData
-                                    ]
-                                    songData.title
-                      }
-                    , { header = songListHeader "Artist Name"
-                      , width = fillPortion 3
-                      , view =
-                            .artist
-                                >> songListCell filteredOptions
-                                    [ Border.widthXY 1 0
-                                    , Border.solid
-                                    , Font.alignLeft
-                                    ]
-                      }
-                    , { header = songListHeader "Code"
-                      , width = fillPortion 1
-                      , view =
-                            \songData ->
-                                songListCell filteredOptions
-                                    []
-                                    songData.code
-                      }
-                    ]
-                }
-            ]
+        none
 
 
-addRemoveButton : Song -> Element Msg
-addRemoveButton songData =
+songListItem : Song -> Element Msg
+songListItem song =
     let
-        ( onPress, labelText, titleText ) =
-            case songData.key of
+        ( title, artist ) =
+            ( ellipsis 28 song.title, ellipsis 35 song.artist )
+    in
+    column
+        [ width fill
+        , padding 10
+        , mouseOver <| [ Background.color purple ]
+        , Border.rounded 5
+        ]
+        [ row
+            [ width fill
+            ]
+            [ el [ alignLeft ] <| text title
+            , el [ alignRight ] <| text song.code
+            ]
+        , row [ width fill, Font.size 12 ]
+            [ el [ alignLeft, alignTop ] <| text ("by " ++ artist)
+            , songListItemButton song
+            ]
+        ]
+
+
+songListItemButton : Song -> Element Msg
+songListItemButton song =
+    let
+        ( color, msg, labelText ) =
+            case song.key of
                 Just key ->
-                    ( Just (RemoveSong key), "⊖", "Remove from wish list" )
+                    ( red, Just (RemoveSong key), "Remove" )
 
                 Nothing ->
-                    ( Just (AddSong songData), "⊕", "Add to wish list" )
+                    ( green, Just (AddSong song), "Add" )
     in
-    Input.button
-        [ Font.color white
-        , paddingEach
-            { top = 0
-            , right = 20
-            , bottom = 10
-            , left = 2
-            }
-        , Font.size 14
-        , htmlAttribute <| title titleText
-        ]
-        { onPress = onPress, label = text labelText }
+    Input.button [ alignRight ]
+        { onPress = msg
+        , label =
+            el [ Font.color color, Font.bold ] (text labelText)
+        }
 
 
-songListHeader : String -> Element Msg
-songListHeader headerText =
-    text headerText
-        |> el
-            [ Font.bold
-            , Font.center
-            , padding 10
-            , Border.widthEach
-                { top = 0
-                , right = 0
-                , bottom = 1
-                , left = 0
-                }
-            ]
-
-
-songListCell : SongListOptions -> List (Attribute Msg) -> String -> Element Msg
-songListCell { charLimit } attributes cellText =
-    ellipsis charLimit cellText
-        |> text
-        |> el ([ padding 10, Font.center ] ++ attributes)
+songList : DeviceClass -> List Song -> Element Msg
+songList deviceClass =
+    let
+        shouldTruncate =
+            deviceClass == Phone
+    in
+    List.map songListItem
+        >> column [ width fill, height <| px 350, clip, scrollbarY ]
 
 
 authWrapper : Model -> Element Msg
@@ -801,28 +761,38 @@ wishListModal model =
             [ width fill
             , height fill
             , Background.color transparentPurple
+            , Font.color white
             ]
-            [ Input.button [ centerY, alignRight ]
+            [ Input.button [ alignRight ]
                 { onPress = Just CloseWishListModal
                 , label =
                     el
                         [ rotate <| degrees 45
-                        , Font.color white
                         , Font.size 26
                         , padding 30
                         ]
-                    <|
-                        text "+"
+                        (text "+")
                 }
-            , el [ centerX, centerY ]
-                (songList
-                    { charLimit = 30
-                    , background = purple
-                    , font = white
-                    , device = model.device
-                    }
-                    model.wishList
-                )
+            , songList model.device.class model.wishList
+            ]
+
+    else
+        none
+
+
+wishListPanel : Model -> Element Msg
+wishListPanel model =
+    if showWishListPanel model then
+        column
+            [ width <| px 350
+            , alignRight
+            , alignTop
+            , Font.color white
+            , Border.width 1
+            , Border.rounded 5
+            ]
+            [ el [ centerX, padding 10 ] (text "Wish List")
+            , songList Phone model.wishList
             ]
 
     else
@@ -861,6 +831,16 @@ white =
 pink : Color
 pink =
     rgb255 158 130 156
+
+
+green : Color
+green =
+    rgb255 46 204 64
+
+
+red : Color
+red =
+    rgb255 255 65 54
 
 
 
