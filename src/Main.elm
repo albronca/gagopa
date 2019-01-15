@@ -39,8 +39,10 @@ type alias Model =
     , debounce : Debounce.Debounce String
     , device : Device
     , email : String
+    , emailFieldFocused : Bool
     , language : Language
     , password : String
+    , passwordFieldFocused : Bool
     , query : String
     , results : List Song
     , showResults : Bool
@@ -73,8 +75,10 @@ initialModel device =
     , debounce = Debounce.init
     , device = device
     , email = ""
+    , emailFieldFocused = False
     , language = English
     , password = ""
+    , passwordFieldFocused = False
     , query = ""
     , results = []
     , showResults = False
@@ -133,7 +137,10 @@ type Msg
     | CloseWishListModal
     | CreateUser
     | DebounceMsg Debounce.Msg
+    | FocusEmailField
+    | FocusPasswordField
     | OpenWishListModal
+    | NoOp
     | QueryChange String
     | ReceiveError String
     | ReceiveUid (Maybe String)
@@ -145,6 +152,8 @@ type Msg
     | SongRemoved String
     | ShowAuthForm AuthForm
     | ToastyMsg (Toasty.Msg Toasty.Defaults.Toast)
+    | UnfocusEmailField
+    | UnfocusPasswordField
     | WindowResize Int Int
 
 
@@ -220,8 +229,17 @@ update msg model =
             , cmd
             )
 
+        FocusEmailField ->
+            ( { model | emailFieldFocused = True }, Cmd.none )
+
+        FocusPasswordField ->
+            ( { model | passwordFieldFocused = True }, Cmd.none )
+
         OpenWishListModal ->
             ( { model | showWishListModal = True }, Cmd.none )
+
+        NoOp ->
+            ( model, Cmd.none )
 
         QueryChange newQuery ->
             let
@@ -312,6 +330,12 @@ update msg model =
         ToastyMsg subMsg ->
             Toasty.update toastyConfig ToastyMsg subMsg model
 
+        UnfocusEmailField ->
+            ( { model | emailFieldFocused = False }, Cmd.none )
+
+        UnfocusPasswordField ->
+            ( { model | passwordFieldFocused = False }, Cmd.none )
+
         WindowResize width height ->
             let
                 windowSize =
@@ -326,8 +350,35 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
+    let
+        keyboard =
+            if model.emailFieldFocused || model.passwordFieldFocused then
+                Decode.field "key" Decode.string
+                    |> Decode.map
+                        (\key ->
+                            case key of
+                                "Enter" ->
+                                    case model.authForm of
+                                        Just SignInForm ->
+                                            SignInUser
+
+                                        Just SignUpForm ->
+                                            CreateUser
+
+                                        Nothing ->
+                                            NoOp
+
+                                _ ->
+                                    NoOp
+                        )
+                    |> Browser.Events.onKeyPress
+
+            else
+                Sub.none
+    in
     Sub.batch
-        [ Browser.Events.onResize WindowResize
+        [ keyboard
+        , Browser.Events.onResize WindowResize
         , receiveNewUid ReceiveUid
         , receiveError ReceiveError
         , songRemoved SongRemoved
@@ -698,13 +749,21 @@ authForm formType model =
         , spacing 10
         , Font.size 16
         ]
-        [ Input.email [ Background.color purple ]
+        [ Input.email
+            [ Background.color purple
+            , Events.onFocus FocusEmailField
+            , Events.onLoseFocus UnfocusEmailField
+            ]
             { onChange = ChangeEmail
             , text = model.email
             , placeholder = Nothing
             , label = Input.labelAbove [] <| text "email"
             }
-        , passwordField [ Background.color transparentPurple ]
+        , passwordField
+            [ Background.color transparentPurple
+            , Events.onFocus FocusPasswordField
+            , Events.onLoseFocus UnfocusPasswordField
+            ]
             { onChange = ChangePassword
             , text = model.password
             , placeholder = Nothing
