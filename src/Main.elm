@@ -12,7 +12,8 @@ import Element.Input as Input
 import Html exposing (Html)
 import Html.Attributes exposing (style, title)
 import Http
-import Json.Decode as Decode exposing (Decoder, field, maybe, string)
+import Json.Decode as Decode
+import Song exposing (Song)
 import String.Extra exposing (ellipsis)
 import Toasty
 import Toasty.Defaults
@@ -41,12 +42,12 @@ type alias Model =
     , language : Language
     , password : String
     , query : String
-    , results : List SongData
+    , results : List Song
     , showResults : Bool
     , showWishListModal : Bool
     , toasties : Toasty.Stack Toasty.Defaults.Toast
     , uid : Maybe String
-    , wishList : List SongData
+    , wishList : List Song
     }
 
 
@@ -64,14 +65,6 @@ type Language
 type AuthForm
     = SignInForm
     | SignUpForm
-
-
-type alias SongData =
-    { key : Maybe String
-    , code : String
-    , title : String
-    , artist : String
-    }
 
 
 initialModel : Device -> Model
@@ -132,8 +125,8 @@ debounceConfig =
 
 
 type Msg
-    = AddSong SongData
-    | ApiResponse (Result Http.Error (List SongData))
+    = AddSong Song
+    | ApiResponse (Result Http.Error (List Song))
     | ChangeEmail String
     | ChangePassword String
     | CloseAuthForm
@@ -148,7 +141,7 @@ type Msg
     | SelectLanguage Language
     | SignInUser
     | SignOut
-    | SongAdded (Result Decode.Error SongData)
+    | SongAdded (Result Decode.Error Song)
     | SongRemoved String
     | ShowAuthForm AuthForm
     | ToastyMsg (Toasty.Msg Toasty.Defaults.Toast)
@@ -334,7 +327,7 @@ subscriptions model =
         , receiveNewUid ReceiveUid
         , receiveError ReceiveError
         , songRemoved SongRemoved
-        , (Decode.decodeValue songDataDecoder >> SongAdded)
+        , (Decode.decodeValue Song.decoder >> SongAdded)
             |> songAdded
         ]
 
@@ -547,7 +540,7 @@ type alias SongListOptions =
     }
 
 
-songList : SongListOptions -> List SongData -> Element Msg
+songList : SongListOptions -> List Song -> Element Msg
 songList options results =
     let
         ( fontSize, maxWidth, charLimit ) =
@@ -613,7 +606,7 @@ songList options results =
             ]
 
 
-addRemoveButton : SongData -> Element Msg
+addRemoveButton : Song -> Element Msg
 addRemoveButton songData =
     let
         ( onPress, labelText, titleText ) =
@@ -788,7 +781,7 @@ wishListModalButton model =
                     }
 
 
-wishListCountBadge : List SongData -> Element Msg
+wishListCountBadge : List Song -> Element Msg
 wishListCountBadge wishList =
     el
         [ Background.color purple
@@ -915,19 +908,5 @@ apiGet language query =
                 , Url.Builder.string "language" (languageToString language)
                 ]
     in
-    Http.send ApiResponse <|
-        Http.get url songDataListDecoder
-
-
-songDataListDecoder : Decoder (List SongData)
-songDataListDecoder =
-    Decode.list songDataDecoder
-
-
-songDataDecoder : Decoder SongData
-songDataDecoder =
-    Decode.map4 SongData
-        (maybe (field "key" string))
-        (field "code" string)
-        (field "title" string)
-        (field "artist" string)
+    Http.get url Song.listDecoder
+        |> Http.send ApiResponse
