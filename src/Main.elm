@@ -346,7 +346,14 @@ view model =
     , body =
         [ mainLayout model
             |> layoutWith
-                { options = layoutOptions }
+                { options =
+                    [ focusStyle
+                        { borderColor = Nothing
+                        , backgroundColor = Nothing
+                        , shadow = Nothing
+                        }
+                    ]
+                }
                 [ Background.color black
                 , Font.color pink
                 , Font.size 16
@@ -409,25 +416,12 @@ mainWidth device =
 
 showWishListPanel : Model -> Bool
 showWishListPanel model =
-    case model.device.class of
-        Phone ->
-            False
-
-        Tablet ->
+    case model.wishList of
+        [] ->
             False
 
         _ ->
-            not <| List.isEmpty model.wishList
-
-
-layoutOptions : List Option
-layoutOptions =
-    [ focusStyle
-        { borderColor = Nothing
-        , backgroundColor = Nothing
-        , shadow = Nothing
-        }
-    ]
+            List.member model.device.class [ Desktop, BigDesktop ]
 
 
 header : Element Msg
@@ -519,7 +513,7 @@ searchBox model =
 searchInputPlaceholder : Maybe (Input.Placeholder Msg)
 searchInputPlaceholder =
     text "Enter a song or artist name"
-        |> Input.placeholder [ Font.color gray, clip ]
+        |> Input.placeholder [ Font.color gray, clip, centerX ]
         |> Just
 
 
@@ -541,7 +535,7 @@ searchResults model =
                         px 800
 
                     _ ->
-                        px 400
+                        px 440
 
             else
                 fill
@@ -552,13 +546,29 @@ searchResults model =
                 el [ centerX, padding 20 ] <| text "No results found"
 
             _ ->
-                column [ width listWidth, centerX ]
+                column [ width listWidth, height <| px 350, alignTop, centerX ]
                     [ el [ centerX, padding 10 ] (text "Results")
                     , songList model.device.class model.results
                     ]
 
     else
         none
+
+
+songList : DeviceClass -> List Song -> Element Msg
+songList deviceClass =
+    let
+        shouldTruncate =
+            deviceClass == Phone
+    in
+    List.map songListItem
+        >> column
+            [ width fill
+            , height fill
+
+            -- , clip
+            , scrollbarY
+            ]
 
 
 songListItem : Song -> Element Msg
@@ -572,6 +582,7 @@ songListItem song =
         , padding 10
         , mouseOver <| [ Background.color purple ]
         , Border.rounded 5
+        , spacing 5
         ]
         [ row
             [ width fill
@@ -602,16 +613,6 @@ songListItemButton song =
         , label =
             el [ Font.color color, Font.bold ] (text labelText)
         }
-
-
-songList : DeviceClass -> List Song -> Element Msg
-songList deviceClass =
-    let
-        shouldTruncate =
-            deviceClass == Phone
-    in
-    List.map songListItem
-        >> column [ width fill, height <| px 350, clip, scrollbarY ]
 
 
 authWrapper : Model -> Element Msg
@@ -760,20 +761,23 @@ wishListModal model =
         column
             [ width fill
             , height fill
-            , Background.color transparentPurple
+            , Background.color purple
             , Font.color white
             ]
-            [ Input.button [ alignRight ]
-                { onPress = Just CloseWishListModal
-                , label =
-                    el
-                        [ rotate <| degrees 45
-                        , Font.size 26
-                        , padding 30
-                        ]
-                        (text "+")
-                }
-            , songList model.device.class model.wishList
+            [ row [ width fill ]
+                [ el [ padding 30, centerY ] (text "Wist List")
+                , Input.button [ alignRight ]
+                    { onPress = Just CloseWishListModal
+                    , label =
+                        el
+                            [ rotate <| degrees 45
+                            , Font.size 26
+                            , padding 30
+                            ]
+                            (text "+")
+                    }
+                ]
+            , el [ height <| px 550, centerX ] (songList model.device.class model.wishList)
             ]
 
     else
@@ -784,7 +788,8 @@ wishListPanel : Model -> Element Msg
 wishListPanel model =
     if showWishListPanel model then
         column
-            [ width <| px 350
+            [ width <| px 360
+            , height <| px 350
             , alignRight
             , alignTop
             , Font.color white
