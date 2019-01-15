@@ -44,6 +44,7 @@ type alias Model =
     , password : String
     , passwordFieldFocused : Bool
     , query : String
+    , requestedUser : Bool
     , results : List Song
     , showResults : Bool
     , showWishListModal : Bool
@@ -80,6 +81,7 @@ initialModel device =
     , password = ""
     , passwordFieldFocused = False
     , query = ""
+    , requestedUser = False
     , results = []
     , showResults = False
     , showWishListModal = False
@@ -214,7 +216,7 @@ update msg model =
             ( { model | showWishListModal = False }, Cmd.none )
 
         CreateUser ->
-            ( model, createUser ( model.email, model.password ) )
+            ( { model | requestedUser = True }, createUser ( model.email, model.password ) )
 
         DebounceMsg subMsg ->
             let
@@ -258,13 +260,28 @@ update msg model =
         ReceiveUid newUid ->
             case newUid of
                 Just _ ->
-                    ( { model | uid = newUid, email = "", password = "" }, Cmd.none )
-                        |> Toasty.addToast toastyConfig
-                            ToastyMsg
-                            (Toasty.Defaults.Success
-                                "Heathcliff, it's me, I'm Cathy!"
-                                "You've successfully signed in."
-                            )
+                    let
+                        maybeToast =
+                            if model.requestedUser then
+                                Toasty.addToast toastyConfig
+                                    ToastyMsg
+                                    (Toasty.Defaults.Success
+                                        "Heathcliff, it's me, I'm Cathy!"
+                                        "You've successfully signed in."
+                                    )
+
+                            else
+                                identity
+                    in
+                    ( { model
+                        | uid = newUid
+                        , email = ""
+                        , password = ""
+                        , requestedUser = False
+                      }
+                    , Cmd.none
+                    )
+                        |> maybeToast
 
                 Nothing ->
                     ( { model | uid = newUid, wishList = [] }, Cmd.none )
@@ -287,7 +304,7 @@ update msg model =
             ( { model | language = newLanguage }, Cmd.none )
 
         SignInUser ->
-            ( model, signInUser ( model.email, model.password ) )
+            ( { model | requestedUser = True }, signInUser ( model.email, model.password ) )
 
         SignOut ->
             ( model, signOut () )
