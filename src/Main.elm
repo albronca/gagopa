@@ -10,7 +10,7 @@ import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
 import Html exposing (Html)
-import Html.Attributes exposing (style, title)
+import Html.Attributes exposing (style)
 import Http
 import Json.Decode as Decode
 import Song exposing (Song)
@@ -498,66 +498,47 @@ header =
         |> el
             [ Font.size 60
             , Font.family [ Font.typeface "Nico Moji" ]
-            , Font.center
-            , width fill
-            , paddingEach
-                { top = 40
-                , right = 0
-                , bottom = 0
-                , left = 0
-                }
+            , centerX
+            , paddingEach { top = 40, right = 0, bottom = 0, left = 0 }
+            , Font.shadow { offset = ( 1, 1 ), blur = 0, color = gray }
             ]
 
 
 languageSelect : Language -> Element Msg
 languageSelect language =
-    row [ Font.size 16, centerX ]
-        [ Input.button
-            [ padding 10
-            , Border.width 1
-            , Border.roundEach
-                { topLeft = 5
-                , topRight = 0
-                , bottomLeft = 5
-                , bottomRight = 0
-                }
-            , Background.color
-                (if language == English then
-                    purple
-
-                 else
-                    black
-                )
-            ]
-            { onPress = Just (SelectLanguage English)
-            , label = text "English"
+    el [ centerX, Border.width 1, Border.rounded 5, clip ]
+        (Input.radioRow []
+            { onChange = SelectLanguage
+            , options =
+                [ languageOption [] English
+                , languageOption [] Spanish
+                ]
+            , selected = Just language
+            , label = Input.labelHidden "Language"
             }
-        , Input.button
-            [ padding 10
-            , Border.widthEach
-                { top = 1
-                , right = 1
-                , bottom = 1
-                , left = 0
-                }
-            , Border.roundEach
-                { topLeft = 0
-                , topRight = 5
-                , bottomLeft = 0
-                , bottomRight = 5
-                }
-            , Background.color
-                (if language == Spanish then
-                    purple
+        )
 
-                 else
-                    black
-                )
-            ]
-            { onPress = Just (SelectLanguage Spanish)
-            , label = text "Spanish"
-            }
-        ]
+
+languageOption : List (Attribute Msg) -> Language -> Input.Option Language Msg
+languageOption attrs language =
+    Input.optionWith language
+        (\state ->
+            let
+                ( bgColor, fontColor ) =
+                    case state of
+                        Input.Idle ->
+                            ( black, pink )
+
+                        Input.Focused ->
+                            ( purple, pink )
+
+                        Input.Selected ->
+                            ( purple, white )
+            in
+            el
+                ([ padding 10, Background.color bgColor, Font.color fontColor ] ++ attrs)
+                (text <| languageToString language)
+        )
 
 
 searchBox : Model -> Element Msg
@@ -581,7 +562,7 @@ searchBox model =
 searchInputPlaceholder : Maybe (Input.Placeholder Msg)
 searchInputPlaceholder =
     text "Enter a song or artist name"
-        |> Input.placeholder [ Font.color gray, clip, centerX ]
+        |> Input.placeholder [ Font.color gray ]
         |> Just
 
 
@@ -633,8 +614,6 @@ songList deviceClass =
         >> column
             [ width fill
             , height fill
-
-            -- , clip
             , scrollbarY
             ]
 
@@ -853,7 +832,7 @@ wishListModal model =
                             (text "+")
                     }
                 ]
-            , el [ height <| px 550, centerX ] (songList model.device.class model.wishList)
+            , el [ height <| px 450, centerX ] (songList model.device.class model.wishList)
             ]
 
     else
