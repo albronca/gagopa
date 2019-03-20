@@ -820,7 +820,7 @@ wishListModal model =
             , Font.color white
             ]
             [ row [ width fill ]
-                [ el [ padding 30, centerY ] (text "Wist List")
+                [ el [ padding 30, centerY ] (text "Wish List")
                 , Input.button [ alignRight ]
                     { onPress = Just CloseWishListModal
                     , label =
