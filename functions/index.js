@@ -1,23 +1,26 @@
 const functions = require('firebase-functions');
 const request = require('request');
 const xmlParser = require('xml2js');
+const cors = require('cors')({origin: true});
 
 exports.songs = functions.https.onRequest((req, res) => {
-  if (!req.query.search || req.query.search.length === 0) {
-    res.status(200).send([]);
-  } else {
-    const url = functions.config().songlist.url;
-    const queryString = buildQueryString(req.query);
-    request(`${url}?${queryString}`, (error, songListRes, body) => {
-      if (!error && songListRes.statusCode === 200) {
-        parseSongListResponse(body, (result) => {
-          res.status(200).send(result);
-        });
-      } else {
-        res.status(500).send(`Error: ${error}, Status Code: ${songListRes.statusCode}`);
-      }
-    });
-  }
+  cors(req, res, () => {
+    if (!req.query.search || req.query.search.length === 0) {
+      res.status(200).send([]);
+    } else {
+      const url = functions.config().songlist.url;
+      const queryString = buildQueryString(req.query);
+      request(`${url}?${queryString}`, (error, songListRes, body) => {
+        if (!error && songListRes.statusCode === 200) {
+          parseSongListResponse(body, (result) => {
+            res.status(200).send(result);
+          });
+        } else {
+          res.status(500).send(`Error: ${error}, Status Code: ${songListRes.statusCode}`);
+        }
+      });
+    }
+  })
 });
 
 function parseSongListResponse(xml, cb) {
