@@ -9,12 +9,11 @@ import Element.Border as Border
 import Element.Events as Events
 import Element.Font as Font
 import Element.Input as Input
-import Html exposing (Html)
 import Html.Attributes exposing (style)
 import Http
 import Json.Decode as Decode
 import Song exposing (Song)
-import String.Extra exposing (ellipsis, toTitleCase)
+import String.Extra exposing (ellipsis)
 import Toasty
 import Toasty.Defaults
 import Url.Builder
@@ -820,7 +819,7 @@ wishListModal model =
             , Font.color white
             ]
             [ row [ width fill ]
-                [ el [ padding 30, centerY ] (text "Wist List")
+                [ el [ padding 30, centerY ] (text "Wish List")
                 , Input.button [ alignRight ]
                     { onPress = Just CloseWishListModal
                     , label =
@@ -942,9 +941,9 @@ apiGet : Language -> String -> Cmd Msg
 apiGet language query =
     let
         url =
-            Url.Builder.crossOrigin "https://gagopa.herokuapp.com"
+            Url.Builder.crossOrigin "https://us-central1-gagopa-351c5.cloudfunctions.net"
                 [ "songs" ]
-                [ Url.Builder.string "query" query
+                [ Url.Builder.string "search" query
                 , Url.Builder.string "language" (languageToString language)
                 ]
     in
