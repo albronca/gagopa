@@ -25,12 +25,12 @@ exports.songs = functions.https.onRequest((req, res) => {
 
 function parseSongListResponse(xml, cb) {
   xmlParser.parseString(xml, (error, result) => {
-      const songs = result.xml.songs[0].song.map((song) => ({
-        code: song.number[0],
-        title: song.title[0],
-        artist: song.artist[0],
-      }));
-      cb(songs);
+    const songs = result.xml.songs[0].song || [];
+    cb(songs.map((song) => ({
+      code: song.number[0],
+      title: song.title[0],
+      artist: song.artist[0],
+    })));
   });
 }
 
