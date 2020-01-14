@@ -1,3 +1,4 @@
+const http = require('http');
 const functions = require('firebase-functions');
 const request = require('request');
 const xmlParser = require('xml2js');
@@ -5,32 +6,51 @@ const cors = require('cors')({origin: true});
 
 exports.songs = functions.https.onRequest((req, res) => {
   cors(req, res, () => {
-    if (!req.query.search || req.query.search.length === 0) {
+    if (queryIsEmpty(req.query)) {
       res.status(200).send([]);
     } else {
-      const url = functions.config().songlist.url;
-      const queryString = buildQueryString(req.query);
-      request(`${url}?${queryString}`, (error, songListRes, body) => {
-        if (!error && songListRes.statusCode === 200) {
-          parseSongListResponse(body, (result) => {
-            res.status(200).send(result);
-          });
-        } else {
-          res.status(500).send(`Error: ${error}, Status Code: ${songListRes.statusCode}`);
-        }
-      });
+      makeApiRequest(req.query)
+        .then(songs => res.status(200).send(songs))
+        .catch(error => res.status(500).send(error));
     }
   })
 });
 
-function parseSongListResponse(xml, cb) {
-  xmlParser.parseString(xml, (error, result) => {
-    const songs = result.xml.songs[0].song || [];
-    cb(songs.map((song) => ({
-      code: song.number[0],
-      title: song.title[0],
-      artist: song.artist[0],
-    })));
+function queryIsEmpty(query) {
+  return !query.search || query.search.length === 0;
+}
+
+function makeApiRequest(query) {
+  const url = functions.config().songlist.url;
+  const queryString = buildQueryString(query);
+
+  return new Promise((resolve, reject) => {
+    request(`${url}?${queryString}`, (error, songListRes, body) => {
+        if (error) {
+          reject(error)
+        } else if (songListRes.statusCode !== 200) {
+          reject(songListRes);
+        } else {
+          parseSongListResponse(body).then(resolve).catch(reject);
+        }
+    });
+  });
+}
+
+function parseSongListResponse(xml) {
+  return new Promise((resolve, reject) => {
+    xmlParser.parseString(xml, (error, result) => {
+      if (error) {
+        reject(error);
+      } else {
+        const songData = result.xml.songs[0].song || [];
+        resolve(songData.map((song) => ({
+          code: song.number[0],
+          title: song.title[0],
+          artist: song.artist[0],
+        })));
+      }
+    });
   });
 }
 
